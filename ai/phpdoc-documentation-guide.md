@@ -478,6 +478,67 @@ When documenting a class, follow this order:
 
 ---
 
+## Code Quality Checks While Documenting
+
+### Array Key Access Safety
+
+**Modern PHP requires checking array keys before access** to avoid warnings and errors. While documenting, verify that array accesses use proper checks:
+
+#### ✅ Safe Patterns:
+
+```php
+// Using isset() before access
+if (isset($array[$key])) {
+    return $array[$key];
+}
+
+// Using null coalescing operator (??)
+return $array[$key] ?? null;
+return $array[$key] ?? 'default';
+
+// Using array_key_exists() for explicit null values
+if (array_key_exists($key, $array)) {
+    return $array[$key];  // May be null
+}
+
+// Superglobals with isset()
+if (isset($_REQUEST[$key])) {
+    $value = $_REQUEST[$key];
+}
+
+// Checking before nested access
+if (isset($cods[1]) && $cods[1]) {
+    return $sub->process($cods[1]);
+}
+```
+
+#### ❌ Unsafe Patterns (Legacy Code):
+
+```php
+// Direct access without check - may cause warning
+return $array[$key];
+
+// Using array without checking if initialized
+$value = $this->someArray[$index];
+
+// Superglobal direct access
+$param = $_GET['id'];
+```
+
+**When documenting older code**, note any unsafe array access patterns that should be refactored. Consider adding a comment like:
+
+```php
+/**
+ * Gets parameter value.
+ * 
+ * @param string $key Parameter name.
+ * @return mixed|null Parameter value or null if not set.
+ * @todo Add isset() check before array access for PHP 8+ compatibility.
+ */
+```
+
+---
+
 ## Tips and Best Practices
 
 ### DO:
@@ -487,7 +548,9 @@ When documenting a class, follow this order:
 ✅ Use specific type names (class names, not generic "object")  
 ✅ Explain "why" in descriptions, not just "what"  
 ✅ Document delegation patterns ("delegates to X")  
-✅ Mark override hooks with "Override in child classes..."
+✅ Mark override hooks with "Override in child classes..."  
+✅ Verify array accesses use `isset()`, `??`, or `array_key_exists()`  
+✅ Note unsafe array patterns with `@todo` for future refactoring
 
 ### DON'T:
 ❌ Use generic types like `object` when class name is known  
@@ -495,7 +558,8 @@ When documenting a class, follow this order:
 ❌ Leave parameters or return values undocumented  
 ❌ Duplicate information (let IDE tools extract method signatures)  
 ❌ Write documentation that contradicts the code  
-❌ Use `@access` tags (deprecated, use visibility keywords instead)
+❌ Use `@access` tags (deprecated, use visibility keywords instead)  
+❌ Ignore unsafe array access patterns in legacy code
 
 ---
 
