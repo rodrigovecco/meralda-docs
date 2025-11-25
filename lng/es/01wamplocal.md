@@ -53,6 +53,23 @@ C:/miproyecto/meralda
 C:/miproyecto/meralda/src/
 ```
 
+## 5️⃣ Inicializar submódulos (Git)
+
+Este proyecto ya no usa `thirdparty.zip`. Las dependencias y recursos externos se manejan ahora mediante submódulos Git (hay dos submódulos principales que se inicializan en la raíz del repositorio). Si clonaste el repo sin la opción `--recursive` o si acabas de obtener cambios, inicializa y actualiza los submódulos con:
+
+```bash
+cd C:/miproyecto/meralda
+git submodule update --init --recursive
+```
+
+Esto descargará y colocará los submódulos en las rutas que el repositorio define. Puedes comprobar el estado de los submódulos con:
+
+```bash
+git submodule status --recursive
+```
+
+Si usas Windows y tu Git no está configurado para seguir submódulos automáticamente, ejecuta los comandos anteriores desde Git Bash o una terminal con soporte Git.
+
 ---
 
 ## 6️⃣ Copiar la app de ejemplo

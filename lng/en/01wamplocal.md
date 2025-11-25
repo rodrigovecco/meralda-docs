@@ -53,6 +53,23 @@ C:/myproject/meralda
 C:/myproject/meralda/src/
 ```
 
+## 5️⃣ Initialize Git submodules
+
+This project no longer uses a `thirdparty.zip` file. External dependencies and resources are provided as Git submodules (there are two main submodules used by the project). If you cloned without `--recursive` or pulled changes that added submodules, initialize and update them with:
+
+```bash
+cd C:/myproject/meralda
+git submodule update --init --recursive
+```
+
+You can check the submodule status with:
+
+```bash
+git submodule status --recursive
+```
+
+Run those commands from a terminal with Git available (Git Bash is recommended on Windows).
+
 ---
 
 ## 6️⃣ Copy the example app
