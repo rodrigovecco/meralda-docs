@@ -9,6 +9,7 @@ This guide provides instructions for documenting PHP classes in the Meralda fram
 3. [Method Documentation](#method-documentation)
 4. [Internal Methods with @internal](#internal-methods-with-internal)
 5. [Complete Example](#complete-example)
+6. [Common Mistakes](#common-mistakes)
 
 ---
 
@@ -573,6 +574,76 @@ Proper PHPDoc documentation provides:
 4. **Validation**: IDEs warn about type mismatches
 5. **Documentation**: Hover tooltips show full PHPDoc descriptions
 6. **Refactoring**: Safer renames and structural changes
+
+---
+
+## Common Mistakes
+
+### Accessing Private Properties Directly Instead of Using Lazy Loaders
+
+**CRITICAL**: When a class has private properties with `__get_priv_*()` lazy loader methods, you must **always** use the lazy loader method when accessing the property from within the same class.
+
+#### ❌ WRONG - Direct Property Access
+
+```php
+class MyClass {
+    private $cfg;
+    
+    final function __get_priv_cfg(){
+        if(!isset($this->cfg)){
+            $this->cfg = $this->getJsonDataItem("cfg");
+        }
+        return $this->cfg;
+    }
+    
+    function doSomething(){
+        // WRONG! This bypasses the lazy loader and may return null
+        if($td = $this->cfg){
+            $td->get_data();
+        }
+    }
+}
+```
+
+#### ✅ CORRECT - Using Lazy Loader Method
+
+```php
+class MyClass {
+    private $cfg;
+    
+    final function __get_priv_cfg(){
+        if(!isset($this->cfg)){
+            $this->cfg = $this->getJsonDataItem("cfg");
+        }
+        return $this->cfg;
+    }
+    
+    function doSomething(){
+        // CORRECT! This triggers the lazy loader if not yet initialized
+        if($td = $this->__get_priv_cfg()){
+            $td->get_data();
+        }
+    }
+}
+```
+
+#### Why This Matters
+
+- **Direct access** (`$this->cfg`) returns `null` if the property hasn't been initialized yet
+- **Lazy loader access** (`$this->__get_priv_cfg()`) ensures the property is initialized before use
+- This is a common mistake because PHP allows accessing private properties directly within the same class
+
+#### When to Use Each
+
+| Context | Access Method |
+|---------|---------------|
+| From outside the class | `$object->cfg` (triggers `__get` magic method) |
+| From within the same class | `$this->__get_priv_cfg()` (explicit lazy loader call) |
+| From child classes | `$this->cfg` (triggers `__get` magic method if private in parent) |
+
+#### Rule of Thumb
+
+**Inside the declaring class, always call the `__get_priv_*()` method explicitly.**
 
 ---
 
