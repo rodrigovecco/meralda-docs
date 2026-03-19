@@ -1,5 +1,39 @@
 # Manager + Item Minimal Pattern
 
+## Class Naming and File Path Convention
+
+**This is the single most important rule when creating any class in this framework.**
+The autoloader (`mw_autoload_subprefmanfilebased_width_subclases`) converts class names to file paths by splitting on `_` and treating each segment as a directory or file name. Understanding this mapping prevents all "class not found" errors.
+
+### Framework modules: `mwmod_mw_*`
+
+The `mwmod_mw` prefix is pre-registered in `src/mwap/preinit.php` and always points to `src/mwap/modules/mw/`. **You do not need to register it.**
+
+Naming formula: `mwmod_mw_` + path segments joined by `_`, where each `_` maps to `/`, and the last segment becomes the filename (+ `.php`).
+
+| Class name | File path (relative to `modules/mw/`) |
+|---|---|
+| `mwmod_mw_formsubmit_man` | `formsubmit/man.php` |
+| `mwmod_mw_formsubmit_item` | `formsubmit/item.php` |
+| `mwmod_mw_formsubmit_manbase` | `formsubmit/manbase.php` |
+| `mwmod_mw_bruteforce_activity_man` | `bruteforce/activity/man.php` |
+| `mwmod_mw_manager_man` | `manager/man.php` |
+
+> **Rule:** count the underscores after `mwmod_mw_` — they map 1:1 to `/` in the path.
+
+### Custom app modules: `mwap_*`
+
+These must be registered explicitly in `src/app/init.php` with `create_and_add_sub_pref_man()`. See `project-customization-detaching-and-modules.md`.
+
+| Class name | File path (relative to module root) |
+|---|---|
+| `mwap_ventis_sales_man` | `ventis/sales/man.php` |
+| `mwap_ventis_sales_item` | `ventis/sales/item.php` |
+
+---
+
+## Building a Manager + Item
+
 When you need a typed manager for an existing table (e.g., `venta`) you only need three small pieces:
 
 1. **Manager class** extending `mwmod_mw_manager_man`.
