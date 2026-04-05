@@ -40,6 +40,10 @@ class YourGrid extends mwmod_mw_ui_base_dxtbladmin{
 }
 ```
 
+**IMPORTANT:** Override `load_items_man()` to specify which manager to use. Do NOT override `getItemsMan()`. 
+The base class provides `get_items_man()` (final method) which calls your `load_items_man()` internally and caches the result.
+When you need to access the manager in other methods like `add_cols()`, use `$this->get_items_man()`.
+
 ### Query-Based Grid (dxtbladminquery)
 
 ```php

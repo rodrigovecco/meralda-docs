@@ -124,6 +124,10 @@ function add_cols($datagrid){
 }
 ```
 
+**IMPORTANT:** Override `load_items_man()` to specify which manager to use. Do NOT override `getItemsMan()`. 
+The base class provides `get_items_man()` (final method) which calls your `load_items_man()` internally and caches the result.
+When you need to access the manager in other methods like `add_cols()`, use `$this->get_items_man()`.
+
 **Optional methods to override:**
 
 ```php
@@ -237,17 +241,84 @@ $url = $subui->get_url();
 $url = $subui->get_url(["param" => "value"]);
 ```
 
-### Getting Request Parameters
+### Getting Request Parameters — `getRequestedParam($key)`
+
+Retrieves a parameter by key, checking two sources in order:
+1. Local `$this->requestedCMDParams` array (set via `setCMDParamsFromRequest()` during getcmd execution)
+2. Global `$_REQUEST` array
+
+Returns `null` if the key is not found in either source.
 
 ```php
-$id = $this->getRequestedParam("param_name");
+$id = $this->getRequestedParam("iditem");
+if (!$id) {
+    return false;
+}
 ```
 
-### Setting Request Parameters
+**Defined in:** `mwmod_mw_ui_sub_uiabs` (available on all subinterfaces)
+
+### Setting Request Parameters — `setRequestParam($key, $val)`
+
+Sets a parameter on both URL params and CMD params simultaneously:
+- `$this->set_url_param($key, $val)` — used for URL generation
+- `$this->set_cmd_param($key, $val)` — used for getcmd requests
+
+Use this after loading an item to ensure the parameter is available for URL generation and command routing in child subinterfaces.
 
 ```php
-$this->setRequestParam("param_name", $value);
+$this->setRequestParam("iditem", $item->get_id());
 ```
+
+**Defined in:** `mwmod_mw_ui_sub_uiabs` (available on all subinterfaces)
+
+### Current Item Management (Container Pattern)
+
+When a `basesubuia` acts as a container for a single item (e.g., a product with view/edit/files subinterfaces), use `set_current_item()` / `get_current_item()` to share the loaded item across subinterfaces.
+
+**Container UI (e.g., item.php):**
+
+```php
+function get_or_set_current_item_by_req() {
+    // Return cached item if already loaded
+    if ($item = $this->get_current_item()) {
+        return $item;
+    }
+    
+    if (!$man = $this->getItemManager()) {
+        return false;
+    }
+    
+    // Read item ID from request
+    $iditem = $this->getRequestedParam("iditem");
+    if (!$iditem) {
+        return false;
+    }
+    
+    // Load item from manager
+    if (!$item = $man->get_item($iditem)) {
+        return false;
+    }
+    
+    // Store item and propagate request param
+    $this->set_current_item($item);
+    $this->setRequestParam("iditem", $item->get_id());
+    return $item;
+}
+```
+
+**Child subinterface accessing the item:**
+
+```php
+// From a child subinterface (view.php, edit.php, etc.)
+$product = $this->parent_subinterface->get_or_set_current_item_by_req();
+```
+
+**Key methods:**
+- `$this->set_current_item($item)` — stores the item on the UI instance
+- `$this->get_current_item()` — retrieves stored item (returns `false` if not set)
+- `$this->getRequestedParam("name")` — reads a parameter from the request
+- `$this->setRequestParam("name", $value)` — sets/propagates a request parameter
 
 ---
 
