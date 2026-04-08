@@ -38,17 +38,43 @@ you write there takes precedence at equal CSS specificity.
 
 ---
 
-## Step 1 — Activate the custom template (PHP, done once)
+## Step 1 — Select a theme via `create_template()` (PHP, done once)
 
-In your project's main UI class (usually under `src/app/managers/`), override
-`create_template()` to return a `mwmod_mw_ui2_template_custom` instance:
+**Themes in UI2 are selected by returning a template class** from the
+`create_template()` method in your project's main UI class.  The template
+class controls which CSS files are loaded and therefore what the application
+looks like.
+
+The framework base (`mwmod_mw_ui2_main`) already defines the default:
+
+```php
+// src/mwap/modules/mw/ui2/main.php  ← framework file, do NOT edit
+function create_template() {
+    return new mwmod_mw_ui2_template_main($this);   // stock theme — no custom CSS
+}
+```
+
+To apply a theme, **override this method** in your own project's main UI
+class (under `src/app/managers/`) and return the template that corresponds
+to the theme you want:
+
+| Template class | Theme |
+|----------------|-------|
+| `mwmod_mw_ui2_template_main` | Default (no override needed) |
+| `mwmod_mw_ui2_template_custom` | Custom — loads `custom.css` from `/res/ui2custom/` |
+| any subclass of the above | Your own fully custom theme (see below) |
+
+### Applying the built-in custom theme
+
+Return `mwmod_mw_ui2_template_custom` to activate the designer's override
+layer (`/res/ui2custom/css/custom.css`):
 
 ```php
 // src/app/managers/uiadmin.php
 class mwap_myproject_uiadmin_main extends mwmod_mw_ui2_def_main_admin {
 
     /**
-     * Use the custom-theme template.
+     * Select the custom theme — loads /res/ui2custom/css/custom.css.
      * @return mwmod_mw_ui2_template_custom
      */
     function create_template() {
@@ -57,7 +83,8 @@ class mwap_myproject_uiadmin_main extends mwmod_mw_ui2_def_main_admin {
 }
 ```
 
-That is the **only PHP change required.**
+That is the **only PHP change required** to unlock CSS theming.  All visual
+customisation happens in the CSS file from Step 2 onwards.
 
 ---
 
