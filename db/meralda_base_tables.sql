@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS `users` (
 -- Table: bruteforce_blacklist
 -- --------------------------------------------------------
 
-DROP TABLE IF EXISTS `bruteforce_blacklist`;
+
 CREATE TABLE IF NOT EXISTS `bruteforce_blacklist` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `ip_address` varchar(45) NOT NULL,
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS `bruteforce_blacklist` (
 -- Table: bruteforce_ip_activity
 -- --------------------------------------------------------
 
-DROP TABLE IF EXISTS `bruteforce_ip_activity`;
+
 CREATE TABLE IF NOT EXISTS `bruteforce_ip_activity` (
   `id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT,
   `ip_address` varchar(45) DEFAULT NULL,
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS `bruteforce_ip_activity` (
 -- Table: bruteforce_whitelist
 -- --------------------------------------------------------
 
-DROP TABLE IF EXISTS `bruteforce_whitelist`;
+
 CREATE TABLE IF NOT EXISTS `bruteforce_whitelist` (
   `id` int(20) NOT NULL AUTO_INCREMENT,
   `ip_address` varchar(45) NOT NULL,
