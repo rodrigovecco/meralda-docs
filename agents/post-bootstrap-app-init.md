@@ -125,11 +125,24 @@ php -r "echo password_hash('mypassword', PASSWORD_BCRYPT) . PHP_EOL;"
 > - The included `docs/db/hash_password.py` requires installing the `bcrypt` pip package separately.
 > - PHP is already a requirement of Meralda and generates the correct `$2y$10$...` bcrypt format natively.
 
-Copy the resulting hash, then edit `meralda/docs/db/initial_user.sql`: replace `admin@meralda.dev` with the actual email and the existing hash with the new one. Then run:
+Copy the resulting hash, then build and execute the SQL using a temp file (required in PowerShell — `<` is not supported and the bcrypt hash breaks `-e` string interpolation):
 
 ```powershell
-Get-Content "meralda/docs/db/initial_user.sql" | & $mysql -u root -p meraldallmodules
+$hash = 'PASTE_HASH_HERE'   # e.g. $2y$10$...
+$adminEmail = 'admin@example.com'
+$adminName  = 'Administrator'
+$sqlFile = "$env:TEMP\insert_admin.sql"
+
+@"
+SET NAMES utf8mb4;
+INSERT INTO ``users`` (``name``, ``complete_name``, ``pass``, ``secpass``, ``active``, ``last_login_date``, ``last_login_ip``, ``is_main``, ``rol_admin``, ``reset_pass_code``, ``reset_pass_enabled``, ``reset_pass_expires``, ``must_change_pass``, ``image``, ``phonenumber``, ``rol_consult``, ``rol_user``)
+VALUES ('$adminEmail', '$adminName', '$hash', 1, 1, NULL, '', 1, 1, '', 0, '0000-00-00 00:00:00', 1, '', '', 0, 0);
+"@ | Set-Content $sqlFile -Encoding UTF8
+
+Get-Content $sqlFile | & $mysql -u root -p your_database_name
 ```
+
+> **Why a temp file?** In PowerShell, `<` (input redirection) is reserved and fails. The bcrypt hash (`$2y$10$...`) also breaks string interpolation when passed via `-e`. Writing to a file and piping with `Get-Content` avoids both issues.
 
 **Step 4: Create the application DB user**
 
