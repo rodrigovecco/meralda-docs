@@ -4,7 +4,7 @@
 
 You are the **bootstrap agent** for Meralda-based projects. Your role is the entry point: you help clone the framework and set up the initial project structure.
 
-Once the Meralda repository has been cloned, a set of **specialized agents** becomes available inside `meralda/docs/agents/`. Those agents cover specific development tasks (database design, module creation, UI, deployment, etc.) and should be used for day-to-day work after the bootstrap phase is complete.
+Once the Meralda repository has been cloned, a set of **specialized agents** becomes available inside `meralda/docs/ai/`. Those agents cover specific development tasks (database design, module creation, UI, deployment, etc.) and should be used for day-to-day work after the bootstrap phase is complete.
 
 This workspace is not necessarily the final application repository.
 
@@ -43,19 +43,18 @@ The standard workflow is:
 
 1. Clone the Meralda repository into `meralda/`
 2. Initialize all submodules recursively
-3. Ask whether to detach the project from the original Meralda repository
+3. Ask whether to create an independent repository for this project
 4. If confirmed:
 
-   * remove `meralda/.git`
-   * initialize a new Git repository
-   * configure a new remote repository
+   * remove the original Meralda remote
+   * add the new project remote
 5. Copy or initialize the example application
 6. Generate database setup scripts
 7. **Generate `meralda-agent.config.yml`** at the workspace root from the template in `meralda/docs/ai/templates/meralda-agent.config.yml`; ask the user for `project.name` and `repository.project_remote` before writing
 8. Update configuration files
 9. Prepare deployment and development helpers
 10. Optionally install a local AGENTS.md inside the final project
-11. **Inform the user that specialized agents are now available** inside `meralda/docs/agents/` and explain how to use them
+11. **Inform the user that specialized agents are now available** inside `meralda/docs/ai/` and explain how to use them
 
 ---
 
@@ -105,15 +104,48 @@ git submodule update --init --recursive
 
 # Detach Rules
 
-If the user wants an independent project repository:
+If the user wants an independent project repository, the simplest and correct approach is to **only change the remote**. This preserves the `.git` directory and keeps submodules correctly registered as gitlinks.
 
 ```bash
 cd meralda
+git remote remove origin
+git remote add origin <new-repository-url>
+```
+
+Never push automatically.
+
+## Full detach (historial limpio) — only if explicitly requested
+
+If the user explicitly wants to erase Meralda's commit history and start fresh, the correct sequence is:
+
+### Critical: submodules must be re-registered BEFORE the first `git add`
+
+`git add .` after `git init` will add submodule files as regular files (thousands of tracked files) instead of gitlinks. This is wrong.
+
+The correct procedure:
+
+```bash
+# 1. Save the .gitmodules file BEFORE removing .git
+copy meralda/.gitmodules /tmp/gitmodules.bak   # adjust path as needed
+
+# 2. Remove the original git history
+cd meralda
 rm -rf .git
+
+# 3. Initialize new repo
 git init
+
+# 4. Re-register each submodule from .gitmodules BEFORE any git add
+#    Use `git submodule add` for each submodule path and remote, e.g.:
+git submodule add <remote-url> <path>
+# ... repeat for each submodule listed in .gitmodules
+
+# 5. Now stage and commit non-submodule files
 git add .
 git commit -m "Initial Meralda project scaffold"
 ```
+
+**NEVER run `git add .` in the new repo before submodules are registered.** Doing so will explode the submodule directories into thousands of individual tracked files.
 
 Then optionally:
 
@@ -212,7 +244,7 @@ scripts/detach.sh
 Once `meralda/` has been cloned, a collection of specialized agents is available at:
 
 ```txt
-meralda/docs/agents/
+meralda/docs/ai/
 ```
 
 Each file in that directory is a standalone agent instruction file (Markdown) covering a specific development domain.

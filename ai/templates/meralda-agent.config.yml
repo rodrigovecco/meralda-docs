@@ -87,6 +87,37 @@ conventions:
     - "Always show a diff before modifying loader or config files."
 
 # ─────────────────────────────────────────────────────────
+# REFERENCE PROJECTS
+#
+# Other Meralda-based projects that agents may consult as
+# examples or reference — without ever modifying them.
+#
+# For each entry, agents must:
+#   1. Check whether local_path exists on disk.
+#      If yes → use read_file / grep_search / file_search (faster, richer).
+#      If no or empty → fall back to github_url using the
+#      github_repo or github_text_search tools.
+#   2. NEVER modify files in reference projects, regardless of path.
+#
+# use_for: tags that describe what this project is useful for.
+# Agents should check this list before implementing something new —
+# if a relevant tag exists, consult that project first.
+# ─────────────────────────────────────────────────────────
+
+reference_projects: []
+# Example entry (uncomment and fill in):
+# reference_projects:
+#   - name: "my-other-project"
+#     github_url: "https://github.com/rodrigovecco/my-other-project"
+#     local_path: ""          # absolute local path, or empty if not cloned
+#     description: "Short description of this project"
+#     use_for:
+#       - "module structure"
+#       - "user roles"
+#       - "mailer config"
+#       - "deployment"
+
+# ─────────────────────────────────────────────────────────
 # AGENTS
 # ─────────────────────────────────────────────────────────
 
