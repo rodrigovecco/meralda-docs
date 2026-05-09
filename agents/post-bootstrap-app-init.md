@@ -29,13 +29,52 @@ Copy-Item -Path "meralda/example/demo/app" -Destination "meralda/src/app" -Recur
 
 **Important:** Do NOT copy directly from the submodule at `src/mwap/modules/demo/` — that is the framework demo module, not the application template.
 
-## Step 2: Verify the Copy
+## Step 2: Review Submodule Versions
+
+After cloning, each submodule is pinned to the commit recorded in the parent repo. For each submodule, **ask the user whether to keep the pinned version or update to the latest remote commit**.
+
+List the current state first:
+
+```powershell
+git -C "meralda" submodule status
+```
+
+Ask the user per submodule (or as a group if they prefer):
+
+> "Each submodule is currently pinned to a specific commit. For `<submodule-path>` (currently at `<short-hash>`), do you want to:
+> - **Keep pinned version** (recommended for stability)
+> - **Update to latest** (`git submodule update --remote -- <path>`)"
+
+To update a specific submodule:
+
+```powershell
+git -C "meralda" submodule update --remote -- <submodule-path>
+# e.g.:
+git -C "meralda" submodule update --remote -- src/mwap/modules/mw
+```
+
+To update all at once:
+
+```powershell
+git -C "meralda" submodule update --remote
+```
+
+After any update, commit the new submodule pointers in the parent repo:
+
+```powershell
+git -C "meralda" add .
+git -C "meralda" commit -m "Update submodule(s) to latest"
+```
+
+> **Note:** Submodules without a `+` prefix in `git submodule status` are already at the pinned commit and may already be at the latest if the remote hasn't advanced.
+
+## Step 4: Verify the Copy
 
 ```powershell
 Test-Path "meralda/src/app/cfg/db.php"   # should return True
 ```
 
-## Step 3: Update meralda-agent.config.yml
+## Step 5: Update meralda-agent.config.yml
 
 After this step, confirm the `meralda-agent.config.yml` at the workspace root reflects the correct writable paths:
 
@@ -45,13 +84,13 @@ access:
     - "meralda/src/app/**"
 ```
 
-## Step 4: Set Up the Database (recommended for local development)
+## Step 6: Set Up the Database (recommended for local development)
 
 > **Note for the agent:** Creating a local database is recommended for development but not always required (e.g., if connecting to a shared dev server). Ask the user before proceeding:
 >
 > "Do you want to set up a local database for development now?"
 
-### 4.1 Ask which database server to use
+### 6.1 Ask which database server to use
 
 Ask the user which database engine they are using. The recommended default is **MariaDB**.
 
@@ -59,7 +98,7 @@ Ask the user which database engine they are using. The recommended default is **
 
 Options: `MariaDB` | `MySQL`
 
-### 4.2 Locate the database executable
+### 6.2 Locate the database executable
 
 Ask the user for the path to `mysql.exe` (the MariaDB/MySQL client). Do not assume any default path.
 
@@ -79,7 +118,7 @@ Verify it works:
 & "F:\wamp64\bin\mariadb\mariadb10.4.13\bin\mysql.exe" --version
 ```
 
-### 4.3 Ask whether to create the database automatically or manually
+### 6.3 Ask whether to create the database automatically or manually
 
 > "Do you want me to create the database automatically, or would you prefer to do it manually?"
 
