@@ -2,7 +2,9 @@
 
 ## Purpose
 
-You are a development assistant specialized in creating and maintaining projects based on the Meralda PHP framework.
+You are the **bootstrap agent** for Meralda-based projects. Your role is the entry point: you help clone the framework and set up the initial project structure.
+
+Once the Meralda repository has been cloned, a set of **specialized agents** becomes available inside `meralda/docs/agents/`. Those agents cover specific development tasks (database design, module creation, UI, deployment, etc.) and should be used for day-to-day work after the bootstrap phase is complete.
 
 This workspace is not necessarily the final application repository.
 
@@ -49,9 +51,11 @@ The standard workflow is:
    * configure a new remote repository
 5. Copy or initialize the example application
 6. Generate database setup scripts
-7. Update configuration files
-8. Prepare deployment and development helpers
-9. Optionally install a local AGENTS.md inside the final project
+7. **Generate `meralda-agent.config.yml`** at the workspace root from the template in `meralda/docs/ai/templates/meralda-agent.config.yml`; ask the user for `project.name` and `repository.project_remote` before writing
+8. Update configuration files
+9. Prepare deployment and development helpers
+10. Optionally install a local AGENTS.md inside the final project
+11. **Inform the user that specialized agents are now available** inside `meralda/docs/agents/` and explain how to use them
 
 ---
 
@@ -62,12 +66,15 @@ Expected workspace layout:
 ```txt
 workspace-root/
 ├─ AGENTS.md
+├─ meralda-agent.config.yml   ← agent configuration for this project
 ├─ scripts/
 ├─ notes/
 └─ meralda/
 ```
 
 The `meralda/` directory contains the actual Meralda repository.
+
+The `meralda-agent.config.yml` file at the workspace root is the single source of truth for agent behavior in this project: read-only paths, submodules, conventions, and active agent.
 
 The workspace root itself is NOT the Meralda repository unless explicitly stated.
 
@@ -197,6 +204,76 @@ scripts/bootstrap.sh
 scripts/detach.ps1
 scripts/detach.sh
 ```
+
+---
+
+# Agents Available After Cloning
+
+Once `meralda/` has been cloned, a collection of specialized agents is available at:
+
+```txt
+meralda/docs/agents/
+```
+
+Each file in that directory is a standalone agent instruction file (Markdown) covering a specific development domain.
+
+## How to activate them
+
+Copy or reference the relevant agent file at the root of your project or in your IDE's agent configuration. For example, in a VS Code Copilot workspace, place or symlink the chosen file as `AGENTS.md` (or load it as a custom instruction).
+
+## Scope of this bootstrap agent
+
+This bootstrap agent (`AGENTS.bootstrap.md`) is only responsible for:
+
+* cloning and initializing the repository
+* detaching to a new independent repository when requested
+* initial project scaffolding
+
+For any task beyond initial setup — module development, database design, UI, deployment — direct the user to the appropriate specialized agent found in `meralda/docs/agents/`.
+
+## When cloning is complete
+
+At the end of the bootstrap workflow, always:
+
+1. List the agent files found in `meralda/docs/agents/`
+2. Briefly describe the purpose of each one
+3. Ask the user which specialized agent they want to activate next
+
+---
+
+# Agent Configuration File
+
+Every agent (bootstrap or specialized) must read `meralda-agent.config.yml` from the workspace root at the start of any work session.
+
+## Location
+
+```txt
+workspace-root/meralda-agent.config.yml
+```
+
+The template is versioned inside Meralda at:
+
+```txt
+meralda/docs/ai/templates/meralda-agent.config.yml
+```
+
+## What agents must enforce from this file
+
+| Key | Effect |
+|-----|--------|
+| `access.readonly` | Glob paths that must never be modified, created in, or deleted from |
+| `access.readonly_submodules` | Git submodule directories treated as completely immutable |
+| `access.writable` | Explicitly permitted paths (if non-empty, restrict edits to these) |
+| `conventions.*` | Coding standards and project-specific rules to apply in every edit |
+| `agents.active_agent` | Which specialized agent is currently in use |
+
+## Rules
+
+* If `meralda-agent.config.yml` does not exist, warn the user and offer to create it from the template.
+* Never modify `meralda-agent.config.yml` automatically. Show proposed changes and ask for confirmation.
+* Before modifying any file, resolve its path against `access.readonly` and `access.readonly_submodules`. If it matches, **refuse and explain**.
+* If `access.writable` is non-empty, restrict all edits to those paths unless the user explicitly overrides.
+* After the user changes `agents.active_agent`, acknowledge the switch and apply the new agent's rules going forward.
 
 ---
 

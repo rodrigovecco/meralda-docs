@@ -1,0 +1,98 @@
+# meralda-agent.config.yml
+#
+# Agent configuration file for this Meralda-based project.
+# Place this file at the workspace root.
+# All agents must read this file before making any changes.
+#
+# ─────────────────────────────────────────────────────────
+# PROJECT
+# ─────────────────────────────────────────────────────────
+
+project:
+  name: "my-project"           # Human-readable project name
+  description: ""              # Short description (optional)
+  environment: "development"   # development | staging | production
+
+# ─────────────────────────────────────────────────────────
+# REPOSITORY
+# ─────────────────────────────────────────────────────────
+
+repository:
+  meralda_remote: "https://github.com/rodrigovecco/meralda.git"
+  project_remote: ""           # New independent repo URL (if detached)
+  detached: false              # true = project has been detached from Meralda
+
+# ─────────────────────────────────────────────────────────
+# ACCESS CONTROL
+# Agents must treat every path listed under "readonly" as
+# untouchable. No edits, no deletions, no new files inside.
+# ─────────────────────────────────────────────────────────
+
+access:
+
+  # Paths that NO agent may modify under any circumstance.
+  # Supports glob patterns relative to the workspace root.
+  readonly:
+    - "meralda/mwap/**"               # Framework core — never touch
+    - "meralda/public_html/res/**"    # Framework front-end assets
+    - "meralda/public_html/install/**"
+    - "meralda/.gitmodules"
+
+  # Git submodules that are read-only.
+  # Agents must not edit files inside these directories.
+  readonly_submodules:
+    - path: "meralda/mwap"
+      remote: ""              # fill in after cloning
+      reason: "Meralda framework core submodule"
+    # - path: "meralda/mwap/modules/some-module"
+    #   remote: ""
+    #   reason: "Shared vendor module"
+
+  # Paths where agents are allowed to create/edit files freely.
+  # If empty, anything not listed as readonly is considered writable.
+  writable:
+    - "meralda/src/app/**"
+    - "meralda/public_html/appcmd/**"
+    - "meralda/public_html/admin/**"
+    - "scripts/**"
+    - "notes/**"
+
+# ─────────────────────────────────────────────────────────
+# DATABASE
+# (no credentials here — use .env or cfg.ini for those)
+# ─────────────────────────────────────────────────────────
+
+database:
+  engine: "mysql"             # mysql | mariadb | pgsql
+  charset: "utf8mb4"
+  collation: "utf8mb4_unicode_ci"
+  # Schema scripts location (relative to workspace root):
+  schema_dir: "meralda/docs/db"
+
+# ─────────────────────────────────────────────────────────
+# CONVENTIONS
+# Reminders for agents about project-specific rules.
+# ─────────────────────────────────────────────────────────
+
+conventions:
+  language: "es"                # Primary language for user-facing strings
+  php_min_version: "8.1"
+  indent: "spaces"
+  indent_size: 4
+  line_endings: "LF"
+  # Custom notes visible to all agents:
+  notes:
+    - "Never introduce new autoloading systems; extend the existing one."
+    - "Keep private logic outside public_html."
+    - "Always show a diff before modifying loader or config files."
+
+# ─────────────────────────────────────────────────────────
+# AGENTS
+# ─────────────────────────────────────────────────────────
+
+agents:
+  # Directory where specialized agent instruction files live.
+  agents_dir: "meralda/docs/agents"
+  # Active agent for current development phase (filename without path).
+  # Set this after bootstrap to remember which agent is in use.
+  active_agent: ""
