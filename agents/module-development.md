@@ -53,18 +53,20 @@ Add getters only when they simplify call sites. All base helpers (`get_id()`, `g
 
 ## Exposing Managers
 
-### Option A — Lazy loader on a central manager
+### Option A — Lazy loader (see Lazy Loader Mechanism above)
 
 ```php
-private $salesMan;
-
 /** @property-read mwap_mam_sales_man $salesMan */
-final function __get_priv_salesMan() {
-    if (!isset($this->salesMan)) {
-        $this->salesMan = new mwap_mam_sales_man($this->mainap);
+class mwap_mam_main_man extends mw_apsubbaseobj {
+    private $salesMan;
+    final function __get_priv_salesMan() {
+        if (!isset($this->salesMan)) {
+            $this->salesMan = new mwap_mam_sales_man($this->mainap);
+        }
+        return $this->salesMan;
     }
-    return $this->salesMan;
 }
+// Access: $this->mainap->mainMan->salesMan
 ```
 
 ### Option B — Application submanager
@@ -77,6 +79,46 @@ function create_submanager_sales() {
 ```
 
 Access anywhere via `$this->mainap->sales`.
+
+---
+
+## Lazy Loader Mechanism
+
+**How it works.** Every Meralda object extends `mw_baseobj` (defined in `src/mwap/core/coreclasses.php`). That base class implements PHP's magic `__get($name)`, which:
+
+1. Constructs the method name `"__get_priv_" . $name`
+2. Calls it if it exists on the object
+
+So when you write `$obj->salesMan`, PHP calls `__get("salesMan")`, which calls `__get_priv_salesMan()`.
+
+**Rules:**
+
+- Declare the property as `private` — it must be inaccessible from outside
+- Name the getter exactly `__get_priv_{propertyName}()` — one underscore before `get`, matching the property name exactly
+- **Access it as a property** (`$obj->salesMan`), never call `__get_priv_salesMan()` directly from outside the class
+- Inside the same class you can call `$this->__get_priv_salesMan()` directly if needed (e.g. inside `__construct`)
+- Declare the property type with `@property-read` in the class docblock for IDE autocomplete
+
+```php
+/**
+ * @property-read mwap_mam_sales_man $salesMan
+ */
+class mwap_mam_main_man extends mw_apsubbaseobj {
+
+    private $salesMan;   // private — only accessible via __get magic
+
+    final function __get_priv_salesMan() {
+        if (!isset($this->salesMan)) {
+            $this->salesMan = new mwap_mam_sales_man($this->mainap);
+        }
+        return $this->salesMan;
+    }
+}
+
+// Usage — always via property syntax:
+$sales = $mainMan->salesMan;        // ✅ correct
+$sales = $mainMan->__get_priv_salesMan();  // ❌ never do this from outside
+```
 
 ---
 
