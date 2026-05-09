@@ -201,6 +201,25 @@ Add new permissions here when a module needs access control. Then check them in 
 if ($user->allow("my_permission_code")) { ... }
 ```
 
+### AP class: use `mwmod_mw_ap_def2` to get the full users2 stack
+
+When the project AP class (`src/mwap/modules/<app>/ap.php`) extends `mwmod_mw_ap_def2` instead of `mwmod_mw_ap_def`, it automatically wires:
+
+- `mwmod_mw_users2_def_usersman` as the users manager
+- `user_must_change_password_enabled = true` (the "force password change" checkbox appears in user edit forms)
+- Users are instances of `mwmod_mw_users2_user`, which implement `mustChangePassword()`
+- `mwmod_mw_ui2_main::getForcedSecuritySubinterfaceCode()` detects the flag after login and forces the `forcechangepass` subinterface
+- Login brute-force protection and CSRF session token enabled by default
+
+```php
+// src/mwap/modules/mam/ap.php
+class mwap_mam_ap extends mwmod_mw_ap_def2 {   // ← NOT mwmod_mw_ap_def
+    ...
+}
+```
+
+`mwmod_mw_ap_def2::create_submanager_user()` in `src/mwap/modules/mw/ap/def2.php` already contains the full role + permission wiring shown above; it is NOT necessary to replicate it in `managers/user.php` — that file is used only when the AP class uses the legacy file-based manager loader.
+
 ---
 
 ## 8. Email Templates — `mailmsgs/`
