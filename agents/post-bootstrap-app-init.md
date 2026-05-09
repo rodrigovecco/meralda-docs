@@ -45,7 +45,11 @@ access:
     - "meralda/src/app/**"
 ```
 
-## Step 4: Set Up the Database
+## Step 4: Set Up the Database (recommended for local development)
+
+> **Note for the agent:** Creating a local database is recommended for development but not always required (e.g., if connecting to a shared dev server). Ask the user before proceeding:
+>
+> "Do you want to set up a local database for development now?"
 
 ### 4.1 Ask which database server to use
 
@@ -104,16 +108,27 @@ $dbName = "your_database_name"   # e.g. meraldallmodules
 
 **Step 3: Create the initial admin user**
 
-Edit `meralda/docs/db/initial_user.sql` first — change the email address and generate a bcrypt hash for the initial password using:
+Ask the user for the admin email and password before running this step:
+
+> "What email address will the admin user have?"
+> "What initial password should the admin have?"
+
+Generate the bcrypt hash using PHP (already required by Meralda — no extra dependencies):
 
 ```powershell
-python "meralda/docs/db/hash_password.py"
+# Replace 'mypassword' with the actual password
+php -r "echo password_hash('mypassword', PASSWORD_BCRYPT) . PHP_EOL;"
 ```
 
-Then run:
+> **Why PHP and not the Python script or MariaDB?**
+> - MariaDB's native functions (`PASSWORD()`, `SHA2()`) produce hashes incompatible with PHP's `password_verify()`.
+> - The included `docs/db/hash_password.py` requires installing the `bcrypt` pip package separately.
+> - PHP is already a requirement of Meralda and generates the correct `$2y$10$...` bcrypt format natively.
+
+Copy the resulting hash, then edit `meralda/docs/db/initial_user.sql`: replace `admin@meralda.dev` with the actual email and the existing hash with the new one. Then run:
 
 ```powershell
-& $mysql -u root -p $dbName < "meralda/docs/db/initial_user.sql"
+Get-Content "meralda/docs/db/initial_user.sql" | & $mysql -u root -p meraldallmodules
 ```
 
 **Step 4: Create the application DB user**
@@ -134,7 +149,7 @@ Tell the user to run the scripts in this order from their DB client (HeidiSQL, p
 
 1. `meralda/docs/db/create_db.sql` — creates the database (edit the name first)
 2. `meralda/docs/db/meralda_base_tables.sql` — creates all base tables
-3. `meralda/docs/db/initial_user.sql` — inserts the first admin user (edit email and bcrypt hash first)
+3. `meralda/docs/db/initial_user.sql` — inserts the first admin user (edit email and generate bcrypt hash with `php -r "echo password_hash('password', PASSWORD_BCRYPT) . PHP_EOL;"` first)
 
 Then create a dedicated application user with privileges only on this database.
 
