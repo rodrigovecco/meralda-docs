@@ -12,6 +12,7 @@ The migration system lives in `mwap/modules/mw/db/migrations/`. It is a built-in
 - Discovers SQL migration files by scanning a directory for `NNNNNN_*.sql` files.
 - Applies pending migrations in numerical order.
 - Supports multiple modules (one directory per module) registered via a lazy hook in your app class.
+- Manages **views independently** via a `views/` subfolder — views are version-tracked and re-applied whenever their declared version changes.
 
 ---
 
@@ -23,6 +24,7 @@ The migration system lives in `mwap/modules/mw/db/migrations/`. It is a built-in
 - **No `DROP TABLE`** — migrations never destroy data.
 - **No FK constraints via `ALTER TABLE ... ADD CONSTRAINT`** — the project does not use FK enforcement at the DB level.
 - Semicolons inside SQL `COMMENT` strings are safe — the parser tracks quoted string context.
+- **Views must NOT be numbered migrations** — put them in the `views/` subfolder instead.
 
 ### Example file: `000001_initial_tables.sql`
 
@@ -65,7 +67,8 @@ mwap/modules/
     └── db/
         └── migrations/           ← "meraldatsx" module
             ├── 000001_initial_tables.sql
-            └── 000002_stock_view.sql
+            └── views/
+                └── mtsx_stocks_current.sql   ← CREATE OR REPLACE VIEW, @version 1
 ```
 
 The path passed to `registerModule()` is **relative to the mwap system root** (`mwap/`).
@@ -125,8 +128,48 @@ class mwap_mam_ap extends mwmod_mw_ap_def2 {
 
 1. Find the highest existing sequence number in the module's `db/migrations/` directory.
 2. Create a new file with the next number: `NNNNNN_description.sql`.
-3. Write idempotent SQL (`CREATE TABLE IF NOT EXISTS`, `CREATE OR REPLACE VIEW`, `INSERT IGNORE`, etc.).
+3. Write idempotent SQL (`CREATE TABLE IF NOT EXISTS`, `INSERT IGNORE`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, etc.).
 4. No code changes needed — the manager auto-discovers files by scanning the directory.
+
+> **Views must not be numbered migrations.** Use the `views/` subfolder instead.
+
+---
+
+## Views
+
+Views live in a `views/` subfolder inside the module's `db/migrations/` directory. The system re-applies a view file whenever its declared version changes.
+
+### Conventions
+
+- Each file must start with a `-- @version X` comment (X is any string, e.g. `1`, `2`, `1.1`).
+- Use `CREATE OR REPLACE VIEW` — never `DROP VIEW`.
+- Filename is the view name (e.g. `mtsx_stocks_current.sql`).
+- The version is compared against the last applied version stored in the JSON data. If they differ, the view is re-applied.
+
+### Example: `views/mtsx_stocks_current.sql`
+
+```sql
+-- @version 1
+-- View: mtsx_stocks_current
+
+CREATE OR REPLACE VIEW mtsx_stocks_current AS
+SELECT
+  CONCAT(e.product_variant_id, '_', e.warehouse_id) AS id,
+  e.product_variant_id,
+  e.warehouse_id,
+  (SUM(e.quantity_in) - SUM(e.quantity_out)) AS c_current
+FROM mtsx_stocks_entries e
+WHERE e.deleted = 0
+GROUP BY e.product_variant_id, e.warehouse_id;
+```
+
+### When to bump the version
+
+Change `-- @version X` whenever the view definition changes. The manager detects the mismatch and re-applies the file on the next "Apply All Pending" run.
+
+### Apply order
+
+Views are applied **after all pending migrations** succeed, for all modules in registration order.
 
 ---
 
