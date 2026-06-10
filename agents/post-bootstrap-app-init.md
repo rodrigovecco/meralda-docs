@@ -12,6 +12,11 @@ After cloning Meralda and setting up the repository remote, the `src/app/` direc
 - Project remote configured (see bootstrap agent)
 - `meralda/example/demo/app/` exists
 
+> **Reminder on the repo "divorce":** the Meralda submodules are **shared globally** across all
+> Meralda projects. When you make the project independent, you only change the **superproject's**
+> remote — never the submodule URLs in `.gitmodules`. See the **Repository Divorce** section below
+> and the bootstrap agent's "Detach Rules" for details.
+
 ## Step 1: Copy the Demo Application Template
 
 ```powershell
@@ -222,6 +227,39 @@ $data = array(
 ```
 
 > This file must be listed in `.gitignore`. Never commit credentials.
+
+## Repository Divorce (make the project independent)
+
+After the app skeleton and database are in place, "divorce" the project from Meralda so it lives
+in its own repository. **The divorce affects ONLY the superproject (main repo). It must NEVER
+change the submodule URLs in `.gitmodules`** — every Meralda project keeps sharing the exact
+same upstream submodules.
+
+### Simple divorce (recommended default)
+
+Keeps history and keeps submodules registered as shared gitlinks. The fresh clone's `origin`
+points to Meralda, so just point the project at its own private repo:
+
+```bash
+cd meralda
+git remote remove origin
+git remote add origin <new-private-repo-url>
+```
+
+Verify the submodules are still shared (URLs unchanged) and update the config flag:
+
+```bash
+git config -f .gitmodules --get-regexp url   # all URLs must still point to the shared Meralda repos
+```
+
+Then set `repository.detached: true` in the workspace-root `meralda-agent.config.yml`.
+
+> **Full detach (clean history)** is only for when the user explicitly wants to erase Meralda's
+> commit history. See the bootstrap agent's "Detach Rules" — submodules must be re-registered with
+> their **same shared URLs** BEFORE the first `git add`.
+
+> **Never push automatically.** The Meralda upstream is read-only; push to the project's own
+> private repo only after the user confirms.
 
 ## Next Steps
 
