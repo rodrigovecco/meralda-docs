@@ -6,6 +6,8 @@
 
 After cloning Meralda and setting up the repository remote, the `src/app/` directory does not exist yet. This step copies the demo application template into place so the project has a working configuration structure to edit.
 
+Before continuing with deeper customization, the assistant must ensure the project is no longer running as plain demo defaults: define the project main app class and confirm which admin UI class should be used.
+
 ## Prerequisites
 
 - Meralda cloned with submodules into `meralda/`
@@ -22,6 +24,27 @@ After cloning Meralda and setting up the repository remote, the `src/app/` direc
 ```powershell
 Copy-Item -Path "meralda/example/demo/app" -Destination "meralda/src/app" -Recurse
 ```
+
+## Step 1.5: Define Main App Class and Admin UI (required)
+
+After copying `src/app/`, do not continue directly to generic config edits. First, ask and confirm:
+
+1. What should be the **project main app class** (the class used by `mw_app` in `src/app/init.php`)?
+2. What should be the **admin UI class** (the class used to render `/admin`)?
+
+Minimum required checks:
+
+- Read `meralda/src/app/init.php` and identify the current inheritance (usually demo-based):
+  - `class mw_app extends mwap_demo_ap {}`
+- Read the project app class file (`ap.php`) and identify `create_ui_main_admin()`.
+- Confirm with the user whether to keep demo admin UI temporarily or switch to a project-specific UI class now.
+
+Expected direction for real projects:
+
+- `mw_app` should extend a project class (not remain permanently tied to demo behavior).
+- `create_ui_main_admin()` should point to the selected project admin UI class.
+
+Only after this confirmation, proceed with the remaining customization steps.
 
 **What this creates:**
 

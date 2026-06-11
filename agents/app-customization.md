@@ -12,6 +12,21 @@
 - Only write a change when the user explicitly provides a different value.
 - After collecting all answers, apply all changes in a single `multi_replace_string_in_file` call.
 
+### Mandatory first questions (before any other customization)
+
+Before asking about branding, SMTP, or content, the assistant must ask and confirm:
+
+1. Which **project main app class** should be used by `mw_app` in `src/app/init.php`?
+2. Which **admin UI class** should be used by the app for `/admin`?
+
+Validation sequence:
+
+- Read `src/app/init.php` and identify the current inheritance (often demo-based).
+- Read the app class implementation (`src/app/ap.php`) and verify `create_ui_main_admin()`.
+- If still demo defaults, explicitly ask whether to keep them temporarily or switch now.
+
+Do not continue with lower-priority customization until these two items are confirmed.
+
 ---
 
 ## Quick Reference Map
