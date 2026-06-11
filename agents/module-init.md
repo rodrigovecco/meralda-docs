@@ -2,6 +2,15 @@
 
 > **AI Assistant Guide**: Run these steps to create the project's own application module — the namespace and class folder where all custom business logic will live. This replaces the `demo` module as the base for `mw_app`.
 
+> ⚠️ **CRITICAL — Do NOT create PHP classes inside `src/app/`**
+>
+> It may be tempting to place `ap.php` or `uiadmin/main.php` directly in `src/app/` because
+> `init.php` lives there. **Do not do this.** `src/app/` is gitignored (config/content only).
+> Classes placed there are invisible to git and cannot be versioned or shared.
+>
+> The module directory **must** be `src/mwap/modules/<mod>/`. The autoloader registration in
+> `src/app/init.php` points to that path — it does not mean the classes live there.
+
 ## Overview
 
 After the bootstrap phase, the application still extends `mwap_demo_ap` from the `demo` module. This guide creates a dedicated project module so the app has its own namespace, autoloader prefix and base classes.

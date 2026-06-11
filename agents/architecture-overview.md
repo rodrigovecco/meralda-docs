@@ -14,7 +14,8 @@ meralda/src/
 │   ├── service/        ← API / service endpoints
 │   ├── res/            ← framework front-end assets (READ-ONLY submodule)
 │   └── appcmd/         ← internal command dispatcher
-├── app/                ← project-specific config and content (gitignored)
+├── app/                ← project-specific CONFIG and CONTENT ONLY (gitignored)
+│   ├── init.php        ← autoloader registration + mw_app wiring (NO PHP classes here)
 │   ├── cfg/            ← db.php, sysmail.php, install.php, lng/
 │   ├── content/        ← HTML content fragments
 │   ├── lng/            ← language string files
@@ -29,6 +30,23 @@ meralda/src/
 │       └── [project]/  ← project modules (mwap_[prefix]_* classes)
 └── appdata/            ← runtime data files
 ```
+
+> ⚠️ **CRITICAL — `src/app/` is NOT for PHP classes**
+>
+> `src/app/` is gitignored (or tracked only for config). Placing PHP classes there means they
+> are **outside proper git tracking** and will not be included in the module's version history.
+>
+> All project PHP classes (`mwap_<prefix>_*`) **must** live in `src/mwap/modules/<prefix>/`.
+> Only these belong in `src/app/`:
+> - `init.php` — autoloader registration and `mw_app` wiring
+> - `cfg/` — database, mail, install configuration
+> - `content/`, `lng/`, `mailmsgs/` — static content and templates
+>
+> Example correct placement for project `lkautomotriz`:
+> ```
+> src/mwap/modules/lkautomotriz/ap.php           → class mwap_lkautomotriz_ap
+> src/mwap/modules/lkautomotriz/uiadmin/main.php → class mwap_lkautomotriz_uiadmin_main
+> ```
 
 ---
 
