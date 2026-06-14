@@ -195,3 +195,56 @@ Replace every occurrence of `mam` / `Mam` with the actual module prefix:
 | `create_submanager_mam()` | `create_submanager_crm()` |
 | `get_submanager("mam")` | `get_submanager("crm")` |
 | `private $mainMan` | same — this is the property name, not the prefix |
+
+---
+
+## The `$mainap->man` accessor — IDE documentation pattern
+
+> **Do not confuse `$mainap->man` with `$mainap->mainMan`.**
+>
+> | Property | What it is | Where it lives |
+> |---|---|---|
+> | `$mainap->man` | Framework accessor — routes `->man->xyz` to `get_submanager("xyz")` | Always present, provided by `mwmod_mw_ap_apabs` |
+> | `$mainap->mainMan` | Project domain manager — groups business logic managers | Optional; only if the project declares it |
+
+### How `$mainap->man` works
+
+`$mainap->man` returns an instance of `mwmod_mw_ap_util_submanagers`. Its `__get($name)` calls
+`get_submanager($name)`, so `$mainap->man->mtsx` is exactly equivalent to
+`$mainap->get_submanager("mtsx")` → `create_submanager_mtsx()`.
+
+**No code is needed to make this work.** It is automatic.
+
+### Purpose of the `man.php` class
+
+The only reason to create a `man.php` in the project module is **IDE code hinting**. The class
+contains zero logic — it only declares `@property-read` entries so the IDE can resolve the type
+of each sub-manager accessed via `->man->`.
+
+```php
+<?php
+/**
+ * Submanagers accessor for [project].
+ * No logic — extends the framework class only for IDE property hints.
+ *
+ * @property-read mwap_mam_mainman $mam
+ * @property-read mwmod_mtsx_mainman $mtsx
+ */
+class mwap_mam_man extends mwmod_mw_ap_util_submanagers {
+}
+?>
+```
+
+Then in `ap.php`, add only the docblock entry — **no `create_man()` override needed**:
+
+```php
+/**
+ * @property-read mwap_mam_man $man
+ */
+class mwap_mam_ap extends mwmod_mw_ap_def2 {
+    // ...
+}
+```
+
+> **Critical:** Do NOT override `create_man()` or `__get_priv_man()` (it is `final` in the framework).
+> The `man.php` subclass is never instantiated — it exists only as a type hint for the IDE.
