@@ -37,10 +37,15 @@ Options -Indexes
 Indica qué servidor de autorización protege este recurso.
 El campo `resource` debe coincidir **exactamente** con la URL del endpoint MCP.
 
+Incluye metadatos adicionales para que clientes OAuth (como Open Code) sepan qué nombre
+darle al token y qué scopes están disponibles.
+
 ```json
 {
   "resource": "https://<dominio>/service/mcp/",
-  "authorization_servers": ["https://<dominio>"]
+  "authorization_servers": ["https://<dominio>"],
+  "scopes_supported": ["catalog_read", "catalog_admin"],
+  "resource_name": "MeraldaTSX MCP"
 }
 ```
 
@@ -48,9 +53,20 @@ El campo `resource` debe coincidir **exactamente** con la URL del endpoint MCP.
 ```json
 {
   "resource": "https://lkautomotriz.com/service/mcp/",
-  "authorization_servers": ["https://lkautomotriz.com"]
+  "authorization_servers": ["https://lkautomotriz.com"],
+  "scopes_supported": ["catalog_read", "catalog_admin"],
+  "resource_name": "lkautomotriz-mcp"
 }
 ```
+
+**Campos:**
+- `resource`: URL exacta del endpoint protegido
+- `authorization_servers`: lista de URLs de servidores OAuth que protegen este recurso
+- `scopes_supported`: scopes reales que usan las tools del MCP:
+  - `catalog_read` → tools de lectura (`list_makes`, `list_models`, `list_variants`, …)
+  - `catalog_admin` → tools de escritura (`create_*`, `update_*`, `delete_*`, `set_*`)
+- `resource_name`: nombre sugerido para mostrar al crear el token (usa `mcpServerName`
+  del `mtsx mainman`, p.ej. `lkautomotriz-mcp`)
 
 ---
 
