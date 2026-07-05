@@ -73,21 +73,38 @@ curl -s -D - -o - -X POST "https://<dominio>/service/mcp/" \
 
 ### 1. Redirect `301` en `POST /service/mcp` (sin barra) — BLOQUEADOR PRINCIPAL
 
-**Síntoma:** Claude hace `POST /service/mcp` (la URL configurada en el conector
-va sin barra final). Como `service/mcp` es un directorio real, `mod_dir` de
+**Síntoma:** Claude hace `POST /service/mcp` (normaliza la URL del conector
+quitando la barra final). Como `service/mcp` es un directorio real, `mod_dir` de
 Apache emite un **301** hacia `/service/mcp/`. En esa redirección el cliente
 convierte el `POST` en `GET` y descarta el header `Authorization` → llega
 autenticado como anónimo → **401**. La conexión nunca prospera.
 
-**Causa:** `DirectorySlash On` (por defecto) en Apache.
+**Causa:** `DirectorySlash On` (por defecto) en Apache sobre un directorio real.
 
-**Corrección:** en `public_html/service/mcp/.htaccess`, desactivar el redirect.
-Todas las peticiones se reescriben a `service.php`, así que no se expone listado
-de directorio.
+**Corrección (NO usar `DirectorySlash Off` en el propio dir):** desactivar el
+redirect en el `.htaccess` del subdirectorio no sirve, porque para una petición
+sin barra Apache aún no ha entrado al directorio, así que ese `.htaccess` no se
+evalúa → el resultado es un **404**. La solución correcta y **universal** vive en
+el `.htaccess` del **padre** (`public_html/service/.htaccess`): si `/service/<name>`
+sin barra corresponde a un directorio real con un `service.php`, se despacha
+directo (sin 301), conservando método, cuerpo y header `Authorization`. Es
+genérica: sirve para cualquier subservicio (`mcp`, `catalog`, `mtsx`, …), no solo
+MCP, y no requiere que el sitio tenga MCP.
 
 ```apache
-DirectorySlash Off
+RewriteEngine On
+# Forward Authorization (Apache/FastCGI strips it by default).
+RewriteCond %{HTTP:Authorization} ^(.+)$
+RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+# /service/<name> (sin barra) → <name>/service.php, sin 301, si es un dir real
+# con service.php. Conserva POST + Bearer. Las URLs con barra no se tocan.
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteCond %{REQUEST_FILENAME}/service.php -f
+RewriteRule ^([^/]+)$ $1/service.php [L,QSA]
 ```
+
+Las peticiones con barra (`/service/mcp/`) entran normal al subdirectorio y usan
+`public_html/service/mcp/.htaccess` como siempre.
 
 ### 2. Notificaciones JSON-RPC recibían respuesta de error
 
@@ -135,9 +152,11 @@ que es lo que `mwmod_mw_oauth_tokenhelper::verify()` → `loadTokenRow()` espera
 ## Verificación post-deploy
 
 ```bash
-# 1. POST sin barra final NO debe redirigir (405 esperado, NO 301)
+# 1. POST sin barra final NO debe redirigir (301) ni dar 404. Con token
+#    inválido debe responder 401 con cuerpo JSON-RPC; con token válido, 200.
 curl -s -o - -w "\nHTTP %{http_code}\n" -X POST "https://<dominio>/service/mcp" \
-  -H "Authorization: Bearer <token>"
+  -H "Content-Type: application/json" -H "Authorization: Bearer <token>" \
+  --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
 
 # 2. GET → 405 con Allow: POST
 curl -s -D - -o - -X GET "https://<dominio>/service/mcp/" \
@@ -154,10 +173,49 @@ curl -s -D - -o - -X POST "https://<dominio>/service/mcp/" \
 
 ---
 
+## Migración: sitios ya independizados del git de Meralda
+
+El fix universal del `301` vive en `public_html/service/.htaccess`. Este archivo
+se copia por sitio, así que los sitios que ya clonaron/forkearon la carpeta
+`public_html/service/` **antes** de este cambio no lo reciben automáticamente al
+actualizar Meralda: hay que aplicarlo a mano.
+
+**Qué hacer en cada sitio afectado** (tenga MCP o no; la regla es inofensiva si
+no hay subservicios): editar `public_html/service/.htaccess` y asegurarse de que
+contenga el bloque de dispatch sin barra:
+
+```apache
+Options +FollowSymLinks
+RewriteEngine On
+
+# Forward the Authorization header (Apache/FastCGI strips it by default).
+RewriteCond %{HTTP:Authorization} ^(.+)$
+RewriteRule ^ - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+# Dispatch /service/<name> (sin barra) a <name>/service.php sin emitir un 301.
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteCond %{REQUEST_FILENAME}/service.php -f
+RewriteRule ^([^/]+)$ $1/service.php [L,QSA]
+```
+
+Notas:
+- Si el `service/.htaccess` del sitio estaba vacío (caso común), basta con pegar
+  el bloque completo.
+- Si algún sitio recibió el intento anterior con `DirectorySlash Off` dentro de
+  `service/mcp/.htaccess`, **quitarlo**: provoca `404` en la forma sin barra.
+- Verificar tras el cambio con el paso 1 de "Verificación post-deploy".
+
+Elevar a Meralda: incorporar este `service/.htaccess` genérico al esqueleto base
+de Meralda para que los sitios nuevos lo hereden sin intervención.
+
+---
+
 ## Archivos relevantes
 
-- `public_html/service/mcp/.htaccess` — routing + `DirectorySlash Off` + forward
-  del header `Authorization`.
+- `public_html/service/.htaccess` — **rewrite `^mcp$` → `mcp/service.php`** para
+  servir la URL sin barra final sin 301 (conserva POST + `Authorization`).
+- `public_html/service/mcp/.htaccess` — routing a `service.php` + forward del
+  header `Authorization` (para las peticiones CON barra).
 - `public_html/service/mcp/service.php` — monta `mwap_lkautomotriz_mcp_server`.
 - `modules/mw/mcp/server.php` — base JSON-RPC (`mwmod_mw_mcp_server`): dispatch,
   auth, 202/405/negotiation.
