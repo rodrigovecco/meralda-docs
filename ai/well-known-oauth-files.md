@@ -77,15 +77,28 @@ Describe todos los endpoints OAuth del sitio. Reemplazar `<dominio>` con el domi
 ```json
 {
   "issuer": "https://<dominio>",
-  "authorization_endpoint": "https://<dominio>/oauth/authorize/",
-  "token_endpoint": "https://<dominio>/oauth/token/",
-  "registration_endpoint": "https://<dominio>/oauth/register/",
+  "authorization_endpoint": "https://<dominio>/admin/index.php?ui=oauthconsent",
+  "token_endpoint": "https://<dominio>/oauth/token",
+  "registration_endpoint": "https://<dominio>/oauth/register",
   "response_types_supported": ["code"],
   "grant_types_supported": ["authorization_code", "refresh_token"],
   "code_challenge_methods_supported": ["S256"],
   "token_endpoint_auth_methods_supported": ["none"]
 }
 ```
+
+**Campos y a qué apuntan (implementación Meralda OAuth 2.1 + PKCE):**
+- `authorization_endpoint`: la **consent UI del admin**
+  (`mwmod_mw_users_ui_oauthconsent_main`, subinterface `oauthconsent`). Recibe la
+  petición de autorización estándar por GET (`client_id`, `redirect_uri`,
+  `response_type=code`, `code_challenge`, `code_challenge_method=S256`, `scope`,
+  `state`), aplica el login wall, y tras aprobar redirige a `redirect_uri?code=&state=`.
+- `token_endpoint`: `/oauth/token` → `mwmod_mw_oauth_endpoints_token`
+  (grant `authorization_code` y `refresh_token`). Devuelve `oa1.*` / `or1.*`.
+- `registration_endpoint`: `/oauth/register` → `mwmod_mw_oauth_endpoints_register`
+  (RFC 7591 DCR, clientes públicos).
+- Ambos `/oauth/*` los sirve un único entry point `public_html/oauth/service.php`
+  que monta `mwmod_mw_oauth_server` en base `oauth` y despacha por path.
 
 ---
 
@@ -102,8 +115,8 @@ Ambos deben devolver `HTTP/2 200` y el header `content-type: application/json`.
 
 ---
 
-## Nota sobre `.gitignore`
+## Nota sobre versionado
 
-La carpeta `src/public_html/.well-known/` está ignorada por git (contiene el dominio
-de producción hardcodeado). Al crear un nuevo sitio, recrear los dos archivos
-manualmente con el dominio correcto y subirlos por SFTP.
+La carpeta `src/public_html/.well-known/` está versionada en git. Contiene el
+dominio de producción hardcodeado, así que al crear un nuevo sitio hay que
+ajustar el dominio en los dos archivos JSON y desplegarlos por SFTP.
