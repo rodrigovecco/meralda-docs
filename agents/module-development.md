@@ -2,6 +2,8 @@
 
 > **AI Assistant Guide**: Reference for creating PHP business logic inside a project module — managers, items, collections, queries, and AJAX endpoints. Read `architecture-overview.md` first to understand naming conventions and file placement.
 
+> ⚠️ **Database tables → migrations**: If your module creates tables, read **`db-migrations.md`** first. SQL files go inside the module at `db/migrations/NNNNNN_description.sql`, and the module must be registered via `registerDBMigrationModules()` in `ap.php`. Do **not** place migration SQL in `docs/db/` — that directory is for core Meralda tables only.
+
 ---
 
 ## Manager + Item Pattern
