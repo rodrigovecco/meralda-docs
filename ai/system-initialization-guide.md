@@ -6,7 +6,13 @@ This document explains how to understand the complete system architecture by fol
 
 Meralda-based systems follow a consistent initialization pattern with multiple entry points for different contexts (admin, visitor, services). Understanding the initialization flow is crucial for comprehending the entire system architecture.
 
-**Important:** If the `src/app/` directory is missing, copy it from the `example/` directory and configure at minimum the database settings in `src/app/cfg/db.php`.
+**Important:** If the `src/app/` directory is missing (it does not exist after a fresh clone), copy it from the example template:
+
+```powershell
+Copy-Item -Path "meralda/example/demo/app" -Destination "meralda/src/app" -Recurse
+```
+
+Then configure at minimum the database settings in `src/app/cfg/db.php`. See `docs/agents/post-bootstrap-app-init.md` for the full initialization guide.
 
 ## Entry Points
 

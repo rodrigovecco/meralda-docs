@@ -48,7 +48,13 @@ The standard workflow is:
 
    * remove the original Meralda remote
    * add the new project remote
-5. Copy or initialize the example application
+5. **Copy the example application** into `src/app/`:
+
+   ```powershell
+   Copy-Item -Path "meralda/example/demo/app" -Destination "meralda/src/app" -Recurse
+   ```
+
+   > This step is critical — `src/app/` does not exist after a fresh clone. The agent at `meralda/docs/agents/post-bootstrap-app-init.md` covers the full post-copy initialization (database setup, app class configuration, admin UI selection).
 6. Generate database setup scripts
 7. **Generate `meralda-agent.config.yml`** at the workspace root from the template in `meralda/docs/ai/templates/meralda-agent.config.yml`; ask the user for `project.name` and `repository.project_remote` before writing
 8. Update configuration files
