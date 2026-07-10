@@ -44,10 +44,15 @@ The standard workflow is:
 1. Clone the Meralda repository into `meralda/`
 2. Initialize all submodules recursively
 3. Ask whether to create an independent repository for this project
-4. If confirmed:
+4. If confirmed, **always detach** — remove the upstream Meralda remote completely:
 
-   * remove the original Meralda remote
-   * add the new project remote
+   ```bash
+   cd meralda
+   git remote remove origin
+   git remote add origin <new-repository-url>
+   ```
+
+   > Submodules are unaffected — they keep their own remotes in `.gitmodules` and continue to pull updates from their respective upstream repos independently.
 5. **Copy the example application** into `src/app/`:
 
    ```powershell
@@ -103,14 +108,14 @@ cd meralda
 git submodule update --init --recursive
 ```
 
-4. Never detach the repository automatically
-5. Ask for confirmation before removing `.git`
+4. Never detach the repository automatically — ask for confirmation first
+5. When detaching, always remove the upstream remote (see Detach Rules below)
 
 ---
 
 # Detach Rules
 
-If the user wants an independent project repository, the simplest and correct approach is to **only change the remote**. This preserves the `.git` directory and keeps submodules correctly registered as gitlinks.
+When creating an independent project from Meralda, **always fully detach** — do not keep the upstream Meralda remote. Submodules are unaffected because they have their own `.git` directories and remotes defined in `.gitmodules`.
 
 ```bash
 cd meralda
