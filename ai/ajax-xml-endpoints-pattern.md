@@ -877,6 +877,181 @@ The JavaScript framework automatically parses XML to JavaScript objects:
 }
 ```
 
+## The Native AJAX Recipe — `mw_ui` + `getAjaxLoader()` + `getAjaxDataResponse()`
+
+This is the **canonical Meralda pattern** for custom AJAX calls from any UI.
+Do **not** use raw `$.ajax()` or `$.getJSON()` — the framework already provides
+a complete, auto-wired stack on the JS side that handles URL construction, XML
+parsing, and error recovery.
+
+### PHP side — wiring the JS UI object
+
+Every subinterface that needs JS-side AJAX must tell the framework to inject the
+`mw_ui` header declaration with the correct `xmlurl`:
+
+```php
+class my_subinterface extends mwmod_mw_ui_base_basesubui {
+
+    function __construct($cod, $parentUI) {
+        $this->init_as_subinterface($cod, $parentUI);
+        // 1) Tell the framework which JS class to instantiate for this UI.
+        //    Use "mw_ui_frm_ajax" if you have a form; "mw_ui" for generic panels.
+        $this->js_ui_class_name = "mw_ui_frm_ajax";
+    }
+
+    function prepare_before_exec_no_sub_interface() {
+        // 2) Load the required JS files (url.js, ajax.js, ui/mwui.js…).
+        $util = new mwmod_mw_html_manager_uipreparers_ui($this);
+        $util->preapare_ui();
+        $jsman = $this->maininterface->jsmanager;
+        $jsman->add_item_by_cod_def_path("url.js");
+        $jsman->add_item_by_cod_def_path("ajax.js");
+        $jsman->add_item_by_cod_def_path("ui/mwui.js");
+        $jsman->add_item_by_cod_def_path("ui/mwui_frm.js");
+
+        // 3) Create the JS header that injects `mwui_info` with `xmlurl`,
+        //    `ui_var`, `sub_ui_var`, etc.
+        $item = $this->create_js_man_ui_header_declaration_item();
+        $util->add_js_item($item);
+    }
+}
+```
+
+**What this produces on the page:**
+
+```html
+<script>
+var mwui_info_<hash> = {
+    xmlurl: "/get/admin/sxml/ui/products-vehicles-item-edit",
+    ui_var: "...",
+    sub_ui_var: "...",
+    ...
+};
+new mw_ui_frm_ajax(mwui_info_<hash>);
+</script>
+```
+
+The `xmlurl` is the base URL used by `get_xmlcmd_url()` to build command URLs.
+
+### JS side — the canonical AJAX call
+
+```javascript
+// 1) Build the URL: appends "command.xml" to the xmlurl base.
+var url = this.get_xmlcmd_url("togglevariant");
+// → /get/admin/sxml/ui/products-...-productimg/togglevariant.xml
+
+// 2) Grab the UI's own AJAX loader (already initialized, shared instance).
+var a = this.getAjaxLoader();
+
+// 3) Abort any pending request + set the new URL.
+a.abort_and_set_url(url);
+
+// 4) Register the callback (only once — addOnLoadAcctionUnique).
+var _this = this;
+a.addOnLoadAcctionUnique(function () {
+    _this.onToggleResponse();
+});
+
+// 5) Fire! POST with data, or a.run() for GET.
+a.post({ img_id: 123, variant_id: 456 });
+
+// 6) Parse the response into an mw_obj with dot-path access.
+this.onToggleResponse = function () {
+    var data = this.getAjaxDataResponse(true);
+    // data is an mw_obj built from <jsresponse> inside the XML.
+
+    if (!data || !data.get_param_or_def("ok", false)) {
+        // handle failure
+        return;
+    }
+
+    // Read nested properties with dot notation.
+    var checked = data.get_param("checked");         // "1" or ""
+    var notify  = data.get_param_if_object("notify"); // { message, type }
+};
+```
+
+### The `mw_obj` response API
+
+The XML `<jsresponse>` node is converted to an `mw_obj` automatically:
+
+```xml
+<root>
+    <ok>1</ok>
+    <jsresponse>
+        <checked>1</checked>
+        <variant_id>456</variant_id>
+    </jsresponse>
+</root>
+```
+
+```javascript
+var data = this.getAjaxDataResponse(true);
+data.get_param("ok");                          // "1"
+data.get_param_or_def("ok", false);            // "1"
+data.get_param("jsresponse.checked");          // "1"
+data.get_param_if_object("jsresponse.notify"); // { message, type } or false
+```
+
+### Complete real-world example — `mw_ui_oauthconsent`
+
+This is the reference implementation for custom AJAX from a Meralda UI
+(`src/public_html/res/js/ui/mwui_oauthconsent.js`):
+
+```javascript
+function mw_ui_oauthconsent(info) {
+    mw_ui.call(this, info);
+
+    this.after_init = function () {
+        this.set_container();
+        // Wire DOM buttons to JS handlers.
+        var b = this.get_ui_elem("btnapprove");
+        b.addEventListener("click", function () { _this.do_approve(); });
+    };
+
+    this.do_approve = function () {
+        // Step 1: build URL.
+        var url = this.get_xmlcmd_url("authorize");
+
+        // Step 2: get the loader.
+        var a = this.getAjaxLoader();
+        a.abort_and_set_url(url);
+
+        // Step 3: register callback.
+        var _this = this;
+        a.addOnLoadAcctionUnique(function () {
+            _this.on_authorize_response();
+        });
+
+        // Step 4: POST data.
+        a.post({ _oauth_action: "approve", _oauth_scope: "read,write" });
+    };
+
+    this.on_authorize_response = function () {
+        // Step 5: parse response.
+        var data = this.getAjaxDataResponse(true);
+        if (!data || !data.get_param_or_def("ok", false)) {
+            // Show error notification.
+            this.show_popup_notify({ message: "...", type: "error" });
+            return;
+        }
+        // Step 6: read properties.
+        var redirectUrl = data.get_param("redirect_url");
+        var token       = data.get_param("token");
+    };
+}
+```
+
+### Key rules
+
+| Rule | Why |
+|---|---|
+| Always use `this.get_xmlcmd_url("cmd")` | Autowires the correct `/get/.../sxml/...` URL from the PHP-injected `xmlurl` |
+| Always use `this.getAjaxLoader()` | Returns the UI's shared `mw_ajax_launcher` — no manual instantiation |
+| Always use `addOnLoadAcctionUnique()` | Prevents duplicate callbacks on re-entry |
+| Always use `this.getAjaxDataResponse(true)` | Parses XML → `mw_obj` with dot-path access; `true` allows JS code evaluation in the response |
+| Always use `data.get_param_or_def("ok", false)` | Safe access with default fallback |
+
 ## Common Implementation Patterns
 
 ### Pattern 1: CRUD Operations (Typically in dxtbladmin)
