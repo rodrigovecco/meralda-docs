@@ -933,124 +933,211 @@ new mw_ui_frm_ajax(mwui_info_<hash>);
 
 The `xmlurl` is the base URL used by `get_xmlcmd_url()` to build command URLs.
 
-### JS side — the canonical AJAX call
+### ✅ JS side — canonical GET request
 
 ```javascript
 // 1) Build the URL: appends "command.xml" to the xmlurl base.
-var url = this.get_xmlcmd_url("togglevariant");
-// → /get/admin/sxml/ui/products-...-productimg/togglevariant.xml
+var url = this.get_xmlcmd_url("loadimages");
+// → /get/admin/sxml/ui/products-...-productimg/loadimages.xml
 
-// 2) Grab the UI's own AJAX loader (already initialized, shared instance).
+// 2) Grab the UI's own AJAX loader (shared instance, already initialized).
 var a = this.getAjaxLoader();
 
-// 3) Abort any pending request + set the new URL.
+// 3) Abort any pending + set the new URL.
 a.abort_and_set_url(url);
 
-// 4) Register the callback (only once — addOnLoadAcctionUnique).
+// 4) Register the callback (once — addOnLoadAcctionUnique).
 var _this = this;
 a.addOnLoadAcctionUnique(function () {
-    _this.onToggleResponse();
+    var data = _this.getAjaxDataResponse(true);
+    // data is mw_obj. Nested values are PLAIN JS.
 });
 
-// 5) Fire! POST with data, or a.run() for GET.
-a.post({ img_id: 123, variant_id: 456 });
+// 5) Fire! a.run() for GET, a.post(data) for POST.
+a.run();
+```
 
-// 6) Parse the response into an mw_obj with dot-path access.
-this.onToggleResponse = function () {
-    var data = this.getAjaxDataResponse(true);
-    // data is an mw_obj built from <jsresponse> inside the XML.
+### ✅ JS side — canonical POST request
 
-    if (!data || !data.get_param_or_def("ok", false)) {
-        // handle failure
-        return;
+```javascript
+var a = this.getAjaxLoader();
+a.abort_and_set_url(this.get_xmlcmd_url("togglevariant"));
+
+var _this = this;
+a.addOnLoadAcctionUnique(function () {
+    var data = _this.getAjaxDataResponse(true);
+    if (!data || !data.get_param_or_def("ok", false)) { return; }
+
+    // Nested from get_param_if_object is PLAIN JS, not mw_obj.
+    var resp = data.get_param_if_object("jsresponse");
+    if (resp && resp.hasOwnProperty("checked")) {
+        cb.checked = !!resp.checked;
     }
+});
 
-    // Read nested properties with dot notation.
-    var checked = data.get_param("checked");         // "1" or ""
-    var notify  = data.get_param_if_object("notify"); // { message, type }
-};
+a.post({ img_id: 123, variant_id: 456 });
 ```
 
-### The `mw_obj` response API
+### The `mw_obj` response API — CRITICAL: plain values vs mw_obj
 
-The XML `<jsresponse>` node is converted to an `mw_obj` automatically:
+**Only the top-level result of `getAjaxDataResponse(true)` is an `mw_obj`.**
+Nested values returned by `get_param_if_object()` are **plain JS objects/arrays**, NOT `mw_obj`.
 
-```xml
-<root>
-    <ok>1</ok>
-    <jsresponse>
-        <checked>1</checked>
-        <variant_id>456</variant_id>
-    </jsresponse>
-</root>
+#### Data flow from XML to JS
+
 ```
+PHP: mwmod_mw_data_xml_js("jsresponse", $jsobj)
+  → XML: <jsresponse>{images:[{id,thumb,...}], variants:[{id,name}]}</jsresponse>
+  → JS: getAjaxDataResponse(true) → mw_obj
+  → data.get_param_as_list('jsresponse.images', true) → plain JS Array  ✅
+  → data.get_param_if_object('jsresponse') → plain JS Object {checked: true}  ✅
+```
+
+#### Method reference
+
+| Method | Returns | When to use |
+|--------|---------|-------------|
+| `get_param(cod)` | Any raw value (string, number, etc.) | Primitive values. Supports dot notation: `'jsresponse.checked'` |
+| `get_param_or_def(cod, def)` | Value or fallback | Safe access with default. Use for `ok`, strings, numbers |
+| `get_param_if_object(cod)` | **plain JS object** (or false) | Sub-objects like `{checked: true}`. **NOT for arrays.** Does NOT verify it's an array. Supports dot notation |
+| `get_param_as_list(cod, allowDoptiom)` | **plain JS Array** (or false) | The ONLY method that verifies `mw_is_array()`. Use for lists. With `allowDoptiom=true` also handles DOptim → array conversion. Supports dot notation |
+
+#### ⚠️ Common mistakes
 
 ```javascript
 var data = this.getAjaxDataResponse(true);
-data.get_param("ok");                          // "1"
-data.get_param_or_def("ok", false);            // "1"
-data.get_param("jsresponse.checked");          // "1"
-data.get_param_if_object("jsresponse.notify"); // { message, type } or false
+
+// ❌ WRONG: treating get_param_if_object result as mw_obj
+var resp = data.get_param_if_object('jsresponse');
+var checked = resp.get_param('checked');  // ERROR! resp is plain {}, no .get_param()
+
+// ❌ WRONG: using get_param_if_object for arrays (no array verification)
+var images = data.get_param_if_object('jsresponse.images');  // could be any object
+
+// ❌ WRONG: using a.get() — the method is a.run()
+a.get();  // doesn't exist!
+
+// ✅ CORRECT: plain object access
+var resp = data.get_param_if_object('jsresponse');
+if (resp && resp.hasOwnProperty('checked')) {
+    cb.checked = !!resp.checked;  // direct property access
+}
+
+// ✅ CORRECT: array via get_param_as_list — verifies array + DOptim-safe
+var images = data.get_param_as_list('jsresponse.images', true) || [];
+var variants = data.get_param_as_list('jsresponse.variants', true) || [];
+
+// ✅ CORRECT: iterate plain arrays with .length and [i]
+for (var i = 0; i < images.length; i++) {
+    var img = images[i];          // plain object
+    var id = img.id || 0;         // direct property access
+    var alt = img.alt || '';
+}
+
+// ✅ CORRECT: launch GET request
+var a = this.getAjaxLoader();
+a.abort_and_set_url(url);
+a.addOnLoadAcctionUnique(function () { /* ... */ });
+a.run();   // ← run(), not get()
+
+// ✅ CORRECT: launch POST request
+a.post({ key: value });
 ```
 
-### Complete real-world example — `mw_ui_oauthconsent`
+### Complete real-world example — load images + variants
 
-This is the reference implementation for custom AJAX from a Meralda UI
-(`src/public_html/res/js/ui/mwui_oauthconsent.js`):
+Full pattern from `meraldatsx/products/uiadmin/productimg.php` + `productimg.js`:
 
-```javascript
-function mw_ui_oauthconsent(info) {
-    mw_ui.call(this, info);
+**PHP endpoint** — returns images and variants as JS objects:
 
-    this.after_init = function () {
-        this.set_container();
-        // Wire DOM buttons to JS handlers.
-        var b = this.get_ui_elem("btnapprove");
-        b.addEventListener("click", function () { _this.do_approve(); });
-    };
+```php
+function execfrommain_getcmd_sxml_loadimages($params = array(), $filename = false) {
+    $xml = $this->new_getcmd_sxml_answer(false);
 
-    this.do_approve = function () {
-        // Step 1: build URL.
-        var url = this.get_xmlcmd_url("authorize");
+    // Build variants array
+    $jsVariants = new mwmod_mw_jsobj_array();
+    foreach ($this->getVariants() as $variant) {
+        $v = new mwmod_mw_jsobj_obj();
+        $v->set_prop("id", $variant->get_id());
+        $v->set_prop("name", $variant->get_name());
+        $jsVariants->add_data($v);
+    }
 
-        // Step 2: get the loader.
-        var a = this.getAjaxLoader();
-        a.abort_and_set_url(url);
+    // Build images array
+    $jsImages = new mwmod_mw_jsobj_array();
+    foreach ($this->getImages() as $img) {
+        $item = new mwmod_mw_jsobj_obj();
+        $item->set_prop("id", $img->get_id());
+        $item->set_prop("thumb", $img->get_thumb_url());
+        $item->set_prop("full", $img->get_full_url());
+        $item->set_prop("alt", $img->get_alt());
+        $item->set_prop("position", $img->get_position());
+        $item->set_prop("view", $img->get_view());
+        $item->set_prop("action_url", $img->get_action_url());
+        $item->set_prop("delete_url", $img->get_delete_url());
+        $item->set_prop("related_variants", $img->get_related_variant_ids());
+        $jsImages->add_data($item);
+    }
 
-        // Step 3: register callback.
-        var _this = this;
-        a.addOnLoadAcctionUnique(function () {
-            _this.on_authorize_response();
-        });
+    // Wrap in jsresponse
+    $jsResponse = new mwmod_mw_jsobj_obj();
+    $jsResponse->set_prop("images", $jsImages);
+    $jsResponse->set_prop("variants", $jsVariants);
 
-        // Step 4: POST data.
-        a.post({ _oauth_action: "approve", _oauth_scope: "read,write" });
-    };
-
-    this.on_authorize_response = function () {
-        // Step 5: parse response.
-        var data = this.getAjaxDataResponse(true);
-        if (!data || !data.get_param_or_def("ok", false)) {
-            // Show error notification.
-            this.show_popup_notify({ message: "...", type: "error" });
-            return;
-        }
-        // Step 6: read properties.
-        var redirectUrl = data.get_param("redirect_url");
-        var token       = data.get_param("token");
-    };
+    $xml->set_prop("ok", true);
+    $xml->add_sub_item(new mwmod_mw_data_xml_js("jsresponse", $jsResponse));
+    $xml->root_do_all_output();
 }
 ```
 
-### Key rules
+**JS client** — loads data, builds DOM, wires events:
 
-| Rule | Why |
-|---|---|
-| Always use `this.get_xmlcmd_url("cmd")` | Autowires the correct `/get/.../sxml/...` URL from the PHP-injected `xmlurl` |
-| Always use `this.getAjaxLoader()` | Returns the UI's shared `mw_ajax_launcher` — no manual instantiation |
-| Always use `addOnLoadAcctionUnique()` | Prevents duplicate callbacks on re-entry |
-| Always use `this.getAjaxDataResponse(true)` | Parses XML → `mw_obj` with dot-path access; `true` allows JS code evaluation in the response |
-| Always use `data.get_param_or_def("ok", false)` | Safe access with default fallback |
+```javascript
+this.loadImages = function () {
+    var a = this.getAjaxLoader();
+    a.abort_and_set_url(this.get_xmlcmd_url('loadimages'));
+
+    var _this = this;
+    a.addOnLoadAcctionUnique(function () {
+        var data = _this.getAjaxDataResponse(true);
+        if (!data || !data.get_param_or_def('ok', false)) { return; }
+
+        // get_param_as_list verifies it's an array AND handles DOptim.
+        _this.variants = data.get_param_as_list('jsresponse.variants', true) || [];
+        _this.allImages = data.get_param_as_list('jsresponse.images', true) || [];
+        _this.renderCards();
+    });
+
+    a.run();  // ← GET request
+};
+
+this.renderCards = function () {
+    var container = this.get_ui_elem('container');
+    container.innerHTML = '';
+
+    if (!this.allImages || this.allImages.length === 0) {
+        container.innerHTML = '<div class="alert alert-info">Sin imágenes</div>';
+        return;
+    }
+
+    // this.allImages is a plain JS array — use .length and [i]
+    for (var i = 0; i < this.allImages.length; i++) {
+        var img = this.allImages[i];  // plain JS object
+        var card = this.buildCard(img);
+        container.appendChild(card);
+    }
+};
+
+this.buildCard = function (img) {
+    // img is a plain JS object — direct property access, no .get_param()
+    var id = img.id || 0;
+    var thumb = img.thumb || '';
+    var full = img.full || '';
+    var alt = mw_escape_html(img.alt || '');
+    var relVariants = img.related_variants || [];  // plain JS array
+
+    // ... build DOM elements ...
+};
 
 ## Common Implementation Patterns
 
