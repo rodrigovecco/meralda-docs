@@ -1133,7 +1133,7 @@ this.buildCard = function (img) {
     var id = img.id || 0;
     var thumb = img.thumb || '';
     var full = img.full || '';
-    var alt = mw_escape_html(img.alt || '');
+    var alt = mw_html_escape(img.alt || '');
     var relVariants = img.related_variants || [];  // plain JS array
 
     // ... build DOM elements ...
