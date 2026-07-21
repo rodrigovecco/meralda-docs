@@ -1034,6 +1034,11 @@ for (var i = 0; i < images.length; i++) {
     var alt = img.alt || '';
 }
 
+// ✅ CORRECT: nested arrays from plain objects — guard with mw_is_array
+// (empty PHP arrays serialize as {} via mwmod_mw_jsobj_obj; mw_is_array catches this)
+var relVariants = mw_is_array(img.related_variants) ? img.related_variants : [];
+if (relVariants.indexOf(someId) !== -1) { /* ... */ }
+
 // ✅ CORRECT: launch GET request
 var a = this.getAjaxLoader();
 a.abort_and_set_url(url);
@@ -1042,6 +1047,75 @@ a.run();   // ← run(), not get()
 
 // ✅ CORRECT: launch POST request
 a.post({ key: value });
+```
+
+### 🔴 CRITICAL: PHP array builders — always use `mwmod_mw_jsobj_array`
+
+**This is the #1 source of silent JS bugs in AJAX responses.** When you embed
+a PHP array inside a `mwmod_mw_jsobj_obj` via `set_prop()`, the serializer
+(`get_as_js_val_from_array`) uses a fragile heuristic to decide `[...]` vs `{...}`:
+
+```php
+// get_as_js_val_from_array() logic:
+//   if key 0 exists → $isunassoc=true → "[...]"
+//   if no key 0   → treat as associative → "{...}"
+```
+
+**The empty-array trap:**
+```php
+$obj = new mwmod_mw_jsobj_obj();
+$obj->set_prop("items", []);       // PHP: empty array
+// JS receives: {"items": {}}      ← {} NOT []!
+// {},get_param_as_list() → false
+// {}.indexOf() → 💥 TypeError
+```
+
+**The rule: whenever you `set_prop()` a value that should be a JS array, use
+`mwmod_mw_jsobj_array` which guarantees `[...]` every time, even when empty.**
+
+```php
+// ❌ WRONG — empty array becomes {}, truthy but useless
+$obj->set_prop("related_variants", $img->get_related_variant_ids());
+$obj->set_prop("tags", []);
+
+// ❌ WRONG — indexed array with gaps (0,2,3 missing key 1) → {}
+$obj->set_prop("items", [0 => "a", 3 => "b"]);
+
+// ✅ CORRECT — mwmod_mw_jsobj_array always serializes as [...]
+$ids = new mwmod_mw_jsobj_array($img->get_related_variant_ids());
+$obj->set_prop("related_variants", $ids);
+
+// ✅ CORRECT — for simple scalar arrays, use constructor directly
+$obj->set_prop("tags", new mwmod_mw_jsobj_array(["tag1", "tag2"]));
+
+// ✅ CORRECT — for arrays of objects, build with add_data()
+$jsImages = new mwmod_mw_jsobj_array();
+foreach ($images as $img) {
+    $entry = new mwmod_mw_jsobj_obj();
+    $entry->set_prop("id", (int)$img->get_id());
+    $entry->set_prop("url", $img->get_url());
+    $jsImages->add_data($entry);
+}
+$obj->set_prop("images", $jsImages);
+```
+
+**JS-side defense (always add this too):**
+```javascript
+// Even with correct PHP, JS should verify with mw_is_array()
+// — catches any serialization edge case or corrupted data
+var items = mw_is_array(img.related_variants) ? img.related_variants : [];
+
+// ✅ Prefer get_param_as_list(cod, true) at the top-level
+//    It auto-verifies mw_is_array() AND converts DOptim → array
+var variants = data.get_param_as_list('jsresponse.variants', true) || [];
+```
+
+**How `mwmod_mw_jsobj_array` serializes (always correct):**
+```php
+// mwmod_mw_jsobj_array::get_as_js_val() — always "[...]":
+$arr = new mwmod_mw_jsobj_array([1, 2, 3]);   // → [1,2,3]
+$arr = new mwmod_mw_jsobj_array();              // → []  (correct even when empty!)
+$arr = new mwmod_mw_jsobj_array([5 => "a"]);   // → ["a"]  (re-indexed)
 ```
 
 ### Complete real-world example — load images + variants
@@ -1075,7 +1149,9 @@ function execfrommain_getcmd_sxml_loadimages($params = array(), $filename = fals
         $item->set_prop("view", $img->get_view());
         $item->set_prop("action_url", $img->get_action_url());
         $item->set_prop("delete_url", $img->get_delete_url());
-        $item->set_prop("related_variants", $img->get_related_variant_ids());
+        $relVarIds = $img->get_related_variant_ids();
+        $jsRelVars = new mwmod_mw_jsobj_array($relVarIds);
+        $item->set_prop("related_variants", $jsRelVars);
         $jsImages->add_data($item);
     }
 
@@ -1088,6 +1164,21 @@ function execfrommain_getcmd_sxml_loadimages($params = array(), $filename = fals
     $xml->add_sub_item(new mwmod_mw_data_xml_js("jsresponse", $jsResponse));
     $xml->root_do_all_output();
 }
+```
+
+> **⚠️ Why `mwmod_mw_jsobj_array` for `related_variants`?**  
+> `mwmod_mw_jsobj_obj::set_prop("key", [])` serializes an **empty** PHP array as `{}` (JS object),
+> not `[]`. This is because `get_as_js_val_from_array()` uses `$isunassoc` (key 0 must exist)
+> as the heuristic for sequential arrays. An empty array has no keys → treated as associative → `{}`.
+> `mwmod_mw_jsobj_array` always emits `[...]` and is immune to this bug.  
+> On the JS side, always guard with `mw_is_array()` instead of `|| []`:
+
+```javascript
+// ✅ Safe: handles both empty-array-as-object and non-array values
+var relVariants = mw_is_array(img.related_variants) ? img.related_variants : [];
+
+// ❌ Unsafe: {} is truthy, so || [] never fires
+var relVariants = img.related_variants || [];
 ```
 
 **JS client** — loads data, builds DOM, wires events:
@@ -1134,7 +1225,7 @@ this.buildCard = function (img) {
     var thumb = img.thumb || '';
     var full = img.full || '';
     var alt = mw_html_escape(img.alt || '');
-    var relVariants = img.related_variants || [];  // plain JS array
+    var relVariants = mw_is_array(img.related_variants) ? img.related_variants : [];
 
     // ... build DOM elements ...
 };
