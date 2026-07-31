@@ -159,6 +159,7 @@ If you cloned the Meralda repository before the submodules were introduced, you'
 5. **Third-Party Libraries** (`src/public_html/res/thirdparty/`)
    - Repository: [meralda-thirdparty-public](https://github.com/rodrigovecco/meralda-thirdparty-public.git)
    - External libraries and dependencies
+   - **Note (2026-07-31):** The default branch was renamed from `master` to `main`. If you have an older clone with a stale `master` reference, run `git remote set-head origin main` and `git checkout main` inside the submodule.
 
 ### Adding All Submodules Manually
 
