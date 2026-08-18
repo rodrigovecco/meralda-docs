@@ -12,6 +12,7 @@ Meralda project that uses the **UI2** module.
 | [README.md](README.md) | This overview + quick-start |
 | [css-variables-reference.md](css-variables-reference.md) | Complete `--ui2-*` CSS custom-property reference |
 | [dark-mode.md](dark-mode.md) | Enabling and customising dark mode |
+| [reduced-motion-devextreme-overlay.md](reduced-motion-devextreme-overlay.md) | Known issue: reduced-motion reset broke DevExtreme overlays |
 
 ---
 
