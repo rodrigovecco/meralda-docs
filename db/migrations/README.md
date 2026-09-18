@@ -76,3 +76,12 @@ of aborting, to tolerate schema changes that were already applied manually:
 | 1091  | Can't DROP — column/key does not exist |
 
 All other errors abort the migration and report the failure.
+
+> **MySQL/MariaDB note:** production may run **either** engine, so migrations
+> must work on both. errno 1060/1061 only fire on a *plain* `ADD COLUMN` /
+> `ADD KEY`. The MariaDB-only `ADD COLUMN IF NOT EXISTS` (or `DROP COLUMN IF
+> EXISTS`) fails with a **syntax error (errno 1064)** on MySQL, which is **not**
+> in the skippable list — so the migration aborts there. Write plain `ALTER
+> TABLE` statements and let 1060/1061 handle re-runs; for PHP migration
+> objects use `column_exists()` in `check()` and build the `ALTER` dynamically
+> in `apply()`. See `docs/agents/db-migrations.md`.

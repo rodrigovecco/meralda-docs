@@ -31,6 +31,59 @@ Two migration styles are supported:
 - Semicolons inside SQL `COMMENT` strings are safe — the parser tracks quoted string context.
 - **Views must NOT be numbered migrations** — put them in the `views/` subfolder instead.
 
+### ⚠️ MySQL vs MariaDB compatibility (MUST read)
+
+Production **can run either MySQL or MariaDB**, so every migration must be
+compatible with **both**. The danger is that one engine (MariaDB >= 10.0.2)
+accepts the `IF [NOT] EXISTS` clauses on `ALTER TABLE` column/key/drop
+operations, while the other (MySQL) does **not** — it fails with a syntax
+error. Never use a construct that works on only one of them. The following
+**will error out on MySQL**:
+
+```sql
+-- ❌ MariaDB-only — fails on MySQL with a syntax error:
+ALTER TABLE `routes` ADD COLUMN IF NOT EXISTS `col` INT;
+ALTER TABLE `routes` ADD KEY IF NOT EXISTS `idx` (`col`);
+ALTER TABLE `routes` DROP COLUMN IF EXISTS `col`;
+```
+
+`CREATE TABLE IF NOT EXISTS` and `INSERT IGNORE` **are** fine on both — the
+incompatibility is only the `IF [NOT] EXISTS` on `ALTER TABLE ... ADD/DROP
+COLUMN/KEY`.
+
+**How to stay compatible:**
+
+- **PHP objects (preferred):** idempotency comes from `check()` + `apply()`,
+  not from `IF NOT EXISTS`. In `apply()`, build the `ALTER TABLE` dynamically
+  from `column_exists()` / `index_exists()` checks:
+
+  ```php
+  function apply() {
+      $adds = [];
+      if (!$this->column_exists("routes", "col_a")) {
+          $adds[] = "ADD COLUMN `col_a` INT NOT NULL DEFAULT 0 AFTER `ancla`";
+      }
+      if (!$this->column_exists("routes", "col_b")) {
+          $adds[] = "ADD COLUMN `col_b` TINYINT(1) NOT NULL DEFAULT 1 AFTER `col_a`";
+      }
+      if (!$adds) { return ["ok" => true, "warnings" => []]; }
+      return $this->run_sql("ALTER TABLE `routes` " . implode(", ", $adds) . ";");
+  }
+  ```
+
+  Chained `AFTER` references are valid on both engines (they reference
+  columns added earlier in the *same* `ALTER`), and `check()` tolerates a
+  partial previous run.
+
+- **Legacy SQL files:** do **not** put `ADD COLUMN IF NOT EXISTS` in the file
+  either. Plain `ALTER TABLE ... ADD COLUMN` is safe to re-run because the
+  runner skips errno **1060** (duplicate column) and **1061** (duplicate key)
+  — see the skippable-errors table in `docs/db/migrations/README.md`.
+
+> **Never** edit a migration that was already applied to any environment
+> (its `check()` result or version state is already recorded); fix forward
+> with a new migration instead.
+
 ### Example file: `000001_initial_tables.sql`
 
 ```sql
@@ -139,7 +192,7 @@ class mwap_mam_ap extends mwmod_mw_ap_def2 {
 
 1. Find the highest existing sequence number in the module's `db/migrations/` directory.
 2. Create a new file with the next number: `NNNNNN_description.sql`.
-3. Write idempotent SQL (`CREATE TABLE IF NOT EXISTS`, `INSERT IGNORE`, `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, etc.).
+3. Write idempotent SQL (`CREATE TABLE IF NOT EXISTS`, `INSERT IGNORE`). For `ALTER TABLE` changes see [MySQL vs MariaDB compatibility](#-mysql-vs-mariadb-compatibility-must-read) — do **not** use `ADD COLUMN IF NOT EXISTS`.
 4. No code changes needed — the manager auto-discovers files by scanning the directory.
 
 > **Views must not be numbered migrations.** Use the `views/` subfolder instead.
