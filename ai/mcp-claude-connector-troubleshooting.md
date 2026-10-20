@@ -256,6 +256,71 @@ RewriteRule.
 
 ---
 
+### 8. `Authorization with <nombre> failed` — el token OAuth no lo leía el endpoint (2026-10-20)
+
+El paso siguiente al fallo 6, y el mensaje también nombra otra cosa:
+
+```
+Authorization with MM test failed. You can check your credentials and permissions.
+```
+
+**Lo que decía el access log** (`/etc/apache2/logs/domlogs/api.<dominio>-ssl_log`):
+
+```
+POST /admin/.../oauthconsent/authorize.xml   200  ← el usuario aprobó
+POST /oauth/token                            200  ← ¡token emitido!
+POST /service/mcp/mm                         401  ← y rechazado, siempre
+```
+
+Es decir: consentimiento OK, intercambio de código OK, y **cada request MCP con el
+token recién emitido daba 401**. Las dos mitades funcionando y el conector
+diciendo "authorization failed".
+
+**Causa:** son **dos formatos de credencial distintos** y el endpoint sólo
+conocía uno.
+
+| credencial | formato | cómo se verifica |
+|---|---|---|
+| API token del panel | **JWT firmado** | `apitokenMan->findActiveByJwt()` |
+| token que emite `/oauth/token` | **`oa1.<payload>.<hmac>`** (derivado, sin fila propia) | `mwmod_mw_oauth_tokenhelper::verify()` |
+
+`mwmod_mw_service_user_root::loginUserByToken()` sólo intentaba
+`findActiveByJwt()`, así que un `oa1.*` no era ni mirado → 401 con el desafío
+genérico (`a valid Bearer API token is required`), que hace pensar en un token
+inválido.
+
+**Corrección** (en el framework, `mw/modules/mw/mcp/server.php`): override de
+`loginUserByToken()` en `mwmod_mw_mcp_server` que, si el JWT falla, verifica el
+`oa1.*` y **usa el mismo login**:
+
+```php
+$verified = mwmod_mw_oauth_tokenhelper::verify($token, ACCESS_PREFIX, $this->mainap->getDBManager());
+$tokenItem = $uman->getApitokenMan()->get_item($verified['token_id']);
+$uman->login_user_api_token_mode($uman->get_user($verified['user_id']), $tokenItem);
+```
+
+- `login_user_api_token_mode()` es lo que mantiene la intersección de permisos
+  (cuenta ∩ scope del token maestro): un solo modelo de permisos, no dos.
+- El `refresh_token` (`or1.*`) **no** se acepta: el prefijo lo descarta. Si se
+  aceptara, un credencial de 30 días serviría como bearer sin canjearse nunca.
+- `getDBManager()` y no `$this->mainap->db` — la misma trampa del fallo 5.
+
+**Verificación** (token `oa1.*` acuñado con el `token_hash` real, contra el server):
+
+```
+POST /service/mcp/mm    200  {"result":{"serverInfo":{"name":"Money Monks"...}}}
+POST /service/mcp/mm/   200  idéntico
+POST tools/list         200  14 tools
+```
+
+**Lección:** "authorization failed" puede ser un 401 en el RECURSO, no en el
+authorization server. Antes de tocar el flujo OAuth, mirar el log y separar los
+tres momentos: consentimiento (200), emisión (`/oauth/token` 200) y uso (401).
+Si los dos primeros son 200 y el tercero 401, el problema es **qué formato de
+token acepta el recurso**.
+
+---
+
 ## Verificación post-deploy
 
 ```bash
