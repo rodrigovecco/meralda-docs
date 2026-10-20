@@ -106,6 +106,14 @@ RewriteRule ^([^/]+)$ $1/service.php [L,QSA]
 Las peticiones con barra (`/service/mcp/`) entran normal al subdirectorio y usan
 `public_html/service/mcp/.htaccess` como siempre.
 
+> **Cuidado, medido en mmdev (fallo 7):** esta regla funciona en lkautomotriz pero
+> **no** en la cuenta de Money Monks, donde mod_rewrite no se aplica dentro de
+> `public_html/service/` aunque se le concedan `RewriteEngine On` y
+> `+FollowSymLinks`. En `service/mcp/` y `service/hello/` sí funciona. Antes de
+> copiarla a un sitio nuevo, comprobar que dispara: un `RewriteRule ^(.*)$` de
+> prueba que no dispare significa que el overlay concede mod_dir y no
+> mod_rewrite.
+
 ### 2. Notificaciones JSON-RPC recibían respuesta de error
 
 **Síntoma:** `notifications/initialized` (mensaje sin `id`) devolvía
@@ -146,6 +154,105 @@ con `$this->mainap->db`, que es `null` en el contexto del servicio OAuth.
 **Corrección:** usar el accesor real del framework,
 `$this->mainap->getDBManager()` (devuelve el submanager `db` con `get_link()`,
 que es lo que `mwmod_mw_oauth_tokenhelper::verify()` → `loadTokenRow()` espera).
+
+### 6. `authorization_servers` ausente → "Couldn't reach MM test" (Money Monks, 2026-10-20)
+
+**Síntoma:** al agregar el conector personalizado en claude.ai, el mensaje es
+
+```
+Couldn't reach MM test. You can check the server URL and verify the server is
+running. If this persists, share this reference with support: "ofid_…"
+```
+
+El servidor **estaba perfecto**: `POST /service/mcp/mm` devolvía `401` con su
+`WWW-Authenticate`, el `resource_metadata` y el JSON-RPC que explica cómo obtener
+el token. Nada en el log del servidor, porque **la request que falla nunca llega**.
+
+**Causa:** `/.well-known/oauth-protected-resource` se publicaba **sin la clave
+`authorization_servers`** (el `get_metadata()` de `mwap_mm_site_mcp` lo omitía a
+propósito, con el docblock diciendo "esta instalación no tiene authorization
+server"). El conector tiene entonces dos lecturas posibles y elige la de rendirse:
+
+```
+POST /service/mcp/mm                    401   ← correcto, con Bearer challenge
+GET  /.well-known/oauth-protected-resource  200  ← sin authorization_servers
+GET  /.well-known/oauth-authorization-server 404  ← el cliente lo pide igual
+POST /oauth/register                    500/404 ← y acá se rinde
+```
+
+El mensaje nombra el servidor MCP, pero el que falla es el **descubrimiento OAuth**.
+Diagnóstico en 4 curl (los de "Verificación post-deploy", más el AS):
+
+```bash
+curl -s https://<dominio>/.well-known/oauth-protected-resource   # ¿tiene authorization_servers?
+curl -s https://<dominio>/.well-known/oauth-authorization-server # ¿200 JSON o 404?
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://<dominio>/oauth/register \
+  -H 'Content-Type: application/json' \
+  --data '{"client_name":"probe","redirect_uris":["https://claude.ai/api/mcp/auth_callback"]}'
+# 201 = listo. 500 "OAuth is not enabled on this site" = faltan las tablas.
+```
+
+**Corrección en Money Monks** (portado de lkautomotriz/MeraldaTSX):
+
+1. `src/public_html/oauth/` — montaje del authorization server:
+   `service.php`, `init.php`, `.htaccess` (todo a `service.php`).
+   Antes de esto `/oauth/register` y `/oauth/token` **no existían**: 500.
+2. `src/public_html/.well-known/authorization-server.php` + una ruta en
+   `.well-known/.htaccess` → publica RFC 8414 (issuer, authorization/token/
+   registration endpoints, PKCE S256, `token_endpoint_auth_methods_supported: none`).
+3. `mwap_mm_site_mcp::get_metadata()` — ahora emite `authorization_servers`
+   (`get_authorization_server_url()`, derivado del request, sin barra final) y
+   `resource_name`. `get_authorization_server_metadata()` arma el documento 2.
+4. `remote/updategit.sh` — **`oauth` agregado a `PUBLIC_ITEMS`**. Sin eso los
+   documentos de descubrimiento viajan y los endpoints que anuncian no, que es la
+   peor combinación posible: el cliente recibe instrucciones de un endpoint 404.
+
+**Verificación completa (2026-10-20, mmdev):**
+
+```
+GET  /.well-known/oauth-protected-resource        200  authorization_servers: ["https://api.mmdev.meralda.dev"]
+GET  /.well-known/oauth-authorization-server      200  issuer + 3 endpoints
+POST /oauth/register                              201  client_id (tablas oauth_* presentes)
+GET  /admin/index.php?ui=oauthconsent&…           200  pantalla de consentimiento tras el login wall
+POST /oauth/token (code inventado)                400  invalid_grant
+POST /service/mcp/mm                              401  Bearer challenge, sin redirección
+```
+
+**Lección:** un documento de descubrimiento que omite una clave no falla en el
+servidor; falla en el cliente, con un mensaje que nombra otra cosa. Cuando un
+conector dice "no puedo alcanzar el servidor", **medir el 401 antes de creerle**:
+si el 401 está bien, el problema es el documento.
+
+---
+
+### 7. En mmdev, mod_rewrite NO se aplica en `public_html/service/` (2026-10-20)
+
+Consecuencia directa del fallo 1: el intento de portar la regla anti-301 al
+servidor nuevo **no funciona**, y no por cómo está escrita.
+
+Medido en `~/apihome/public_html/service/.htaccess`, en este orden, con la regla
+del fallo 1 y variantes:
+
+| intento | resultado |
+|---|---|
+| `RewriteEngine On` | 301 sigue |
+| `+ Options +FollowSymLinks` | 301 sigue |
+| `RewriteRule ^(.*)$ /zzprobe/$1 [R=302,L]` (no puede no coincidir) | **no dispara nunca** |
+| `DirectorySlash Off` | 301 → **403** (el archivo sí se lee) |
+| `DirectoryIndex service.php` | **404** |
+
+Conclusión: en ese directorio el overlay del hosting concede **mod_dir** y no
+**mod_rewrite**. Las mismas directivas dentro de `service/mcp/.htaccess` y
+`service/hello/.htaccess` funcionan perfecto.
+
+**Qué queda entonces:** el mount root sin barra (`/service/mcp`) sigue dando 301,
+como cualquier instalación Apache. **No afecta al conector**, porque el recurso
+anunciado es el hijo virtual `/service/mcp/mm`, que no es un directorio en disco:
+mod_dir no lo toca y contesta directo (401 en las dos formas, con y sin barra).
+El archivo `.htaccess` lo documenta para que nadie lo reintente.
+
+Corolario: en este docroot, para mapear una URL usá directivas de mod_dir, no
+RewriteRule.
 
 ---
 

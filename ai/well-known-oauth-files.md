@@ -1,12 +1,44 @@
 # Archivos `.well-known/` para OAuth 2.1
 
-Los archivos de esta carpeta son **JSON estáticos** que sirven como metadatos de descubrimiento
-OAuth (RFC 9728). Están en `.gitignore` porque contienen la URL del dominio de producción, que
-puede diferir entre sitios. Se despliegan manualmente al servidor.
+Metadatos de descubrimiento OAuth: **RFC 9728** (protected resource) y **RFC 8414**
+(authorization server). Son la primera cosa que un conector lee, antes de tener
+token, y lo que deciden si puede pedir uno solo o no.
 
 ---
 
-## Estructura de la carpeta
+## Dos formas de servirlos, y esta instalación usa la segunda
+
+| | MeraldaTSX / lkautomotriz | **Money Monks (este repo)** |
+|---|---|---|
+| Cómo se sirven | dos JSON estáticos | scripts PHP que los construyen |
+| Dominio | escrito dentro del archivo | derivado del request / `cfg.ini` |
+| Al crear un sitio | editar el dominio a mano y subir por SFTP | nada que editar |
+| Funciona en staging/dev | no, si el archivo no se reescribe | sí |
+
+La forma estática (el resto de este documento) es la de los sitios que clonaron
+`public_html/.well-known/` antes de que existiera el builder. **En Money Monks no
+se editan JSON**: los dos documentos los genera `src/public_html/.well-known/` a
+partir de `mwap_mm_site_mcp`, y `.well-known/.htaccess` los rutea:
+
+```
+.well-known/
+├── .htaccess                  ← rutas: 3 paths → 2 runners
+├── metadata.php               ← RFC 9728 protegido (protected-resource)
+└── authorization-server.php   ← RFC 8414 (authorization-server)
+```
+
+Por qué importa que sean dinámicos: el documento contiene URLs absolutas
+(`resource`, `issuer`, `token_endpoint`, `registration_endpoint`). Escritas a mano
+son correctas en la máquina que las escribió y **falsas en todas las demás**, y el
+síntoma no aparece en ningún log — el cliente sólo dice "no se pudo conectar".
+
+El origen lo determina `mwap_mm_site_mcp::request_base()`; se puede fijar con
+`mcp_authorization_server_url` en `src/app/cfg.ini` si hay un proxy adelante que
+reescribe el host.
+
+---
+
+## Estructura estática (sitios con JSON, fuera de este repo)
 
 ```
 public_html/
@@ -62,6 +94,15 @@ darle al token y qué scopes están disponibles.
 **Campos:**
 - `resource`: URL exacta del endpoint protegido
 - `authorization_servers`: lista de URLs de servidores OAuth que protegen este recurso
+
+  > **Este campo es el que decide si un conector puede firmar su propio token.**
+  > Si falta, el cliente queda en la duda entre "el origen del endpoint ES el
+  > authorization server" y "no hay OAuth": claude.ai hace lo segundo y reporta
+  > *"Couldn't reach <nombre>. You can check the server URL and verify the server is
+  > running"* — con el servidor respondiendo 401 perfectamente y **sin nombrar
+  > ninguna URL**. No es un problema de red y no se arregla en el firewall. Ver
+  > `mcp-claude-connector-troubleshooting.md`, fallo 6.
+
 - `scopes_supported`: scopes reales que usan las tools del MCP:
   - `catalog_read` → tools de lectura (`list_makes`, `list_models`, `list_variants`, …)
   - `catalog_admin` → tools de escritura (`create_*`, `update_*`, `delete_*`, `set_*`)
