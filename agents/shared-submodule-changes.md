@@ -164,6 +164,11 @@ Rendering changes:
 * `exec_sub_interface_mnu()` **no longer prints a `navbar-toggler`**. That toggle now lives on the
   title line (`fa-list-ul` icon, right-aligned, only below 992 px): two hamburgers in a row were
   indistinguishable from the sidebar one.
+* **The whole collapse is narrow-screen only (`max-width: 991.98px`).** The chevron is
+  `display:none` by default and the `.mw-ui-header-collapsed` rule that hides the zone exists *only*
+  inside the media query, so on a desktop the header is always shown and there is no button to press.
+  Do not move either rule out of the media query: the "collapsed" class can stay on the zone after a
+  rotation or a resize, and on a wide viewport it must be inert.
 * State is **not persisted**: `data-mw-ui-collapsed` on `#mwUIHeaderZone` is the only source of
   truth, so every page load starts from what the UI declared on the server (expanded unless the class
   sets `$uiHeaderCollapsedByDefault = true`). Toggling only affects the current view; refreshing — or
