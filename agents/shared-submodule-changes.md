@@ -144,6 +144,18 @@ Only a UI that sets `$uiHeaderCollapsedByDefault = true` opts in. The rule for t
 | `get_ui_header_zone_open_html($su)` | Opens `#mwUIHeaderZone` around header + menu |
 | `output_ui_header_toggle_assets()` | Emits the CSS and the toggle script once per page |
 
+#### Topbar gotchas found here (2026-11-06, commit `2dfde5b`)
+
+* The sidebar hamburger used to carry `order-1 order-lg-0`. On a phone the flex layout pushed it
+  **after** the brand and the user menu, so it landed at `x=365` with `43px` of width on a `390px`
+  screen — outside the viewport. With the new header chevron also in the topbar, the visible result
+  was "the sidebar hamburger disappeared". Both buttons are now pinned with `order:0`.
+* `ui2`'s `layout.css` styles `.sb-topnav #sidebarToggle` **with an id**, so a class-based rule loses
+  even when it is more specific by class count. Zeroing margins/padding to remove the gap between the
+  two icons has to be written as `.sb-topnav #mwUIHeaderToggle, .sb-topnav #sidebarToggle`.
+* Below 992 px the brand had a fixed width and pushed the user menu off the right edge; it now
+  shrinks and ellipsizes (`flex:1 1 auto; min-width:0; overflow:hidden`).
+
 Rendering changes:
 
 * `exec_page_body_sub_interface_bootstrap()` wraps the breadcrumb/title row **and** the sub-menu row
@@ -164,6 +176,9 @@ Rendering changes:
   match; selectors that assume the header row is a direct child of `.container-fluid` do not.
 * The sub-menu no longer has its own `navbar-toggler`; page code looking for it will not find it.
   Search for `navbar-toggler` in project code before bumping the pin.
+* The topbar markup **changed position**: `#sidebarToggle` no longer has `order-1 order-lg-0` and now
+  sits immediately after the header toggle. Any project CSS or JS that relied on the old order
+  classes must be reviewed.
 * `mwmod_mw_uitemplates_sbadmin_main`, `ui2` and `ui/def/main/def` inherit all of this. The other
   template family (`mwmod_mw_bootstrap_ui_template_main`) is **not** touched and keeps its old
   behaviour.
