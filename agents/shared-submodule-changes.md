@@ -164,8 +164,12 @@ Rendering changes:
 * `exec_sub_interface_mnu()` **no longer prints a `navbar-toggler`**. That toggle now lives on the
   title line (`fa-list-ul` icon, right-aligned, only below 992 px): two hamburgers in a row were
   indistinguishable from the sidebar one.
-* State is stored in `localStorage` under `mwUIHeaderCollapsed:<subinterface-full-cod>`, so it is per
-  screen. A stored value always wins over `$uiHeaderCollapsedByDefault`.
+* State is **not persisted**: `data-mw-ui-collapsed` on `#mwUIHeaderZone` is the only source of
+  truth, so every page load starts from what the UI declared on the server (expanded unless the class
+  sets `$uiHeaderCollapsedByDefault = true`). Toggling only affects the current view; refreshing — or
+  navigating to any other screen — goes back to that screen's own default. *(An earlier revision kept
+  the choice in `localStorage`; it was removed on request because a collapsed screen stayed collapsed
+  after reload, including on pages that never asked for it.)*
 * On toggle the template dispatches a `resize` event so the Google map / DevExtreme widgets recompute
   their size. A view can define `window.mw_ui_header_on_toggle(collapsed)` to react.
 
@@ -194,8 +198,8 @@ Rendering changes:
 3. Narrow the window below 992 px: the tabs collapse and a `fa-list-ul` button appears at the right of
    the title line; it must expand/collapse the tabs.
 4. Toggle the topbar chevron: header + tabs hide together, the icon flips and the title switches
-   between *Ocultar encabezado* / *Mostrar encabezado*; a reload keeps the choice, other screens do
-   not inherit it.
+   between *Ocultar encabezado* / *Mostrar encabezado*. Then **reload**: the page must come back to
+   its own default (expanded, unless the UI opted out), not to the state left behind.
 5. Grid screens (`mw_ui_grid_remote`): collapsing must not break DevExtreme popups (the `resize`
    event is dispatched for that).
 6. Phone width: the map/legend screens still fill the width.
