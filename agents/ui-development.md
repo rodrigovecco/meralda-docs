@@ -257,3 +257,31 @@ admin-sales-list              → list sub of sales
 ```
 
 Use `$this->get_sxml_url("command")` to generate the correct URL for the current subinterface.
+
+---
+
+## Collapsible Header (breadcrumb + title + sub-menu)
+
+`mwmod_mw_ui_sub_uiabs` exposes two flags, both inherited by every subinterface:
+
+| Member | Default | Meaning |
+|---|---|---|
+| `$uiHeaderCollapsible` | `true` | The header/sub-menu can be collapsed by the user |
+| `$uiHeaderCollapsedByDefault` | `false` | Start collapsed when the browser has no stored choice |
+
+Keep `$uiHeaderCollapsedByDefault = false` unless the page really needs the vertical space (full-height
+map, canvas, kiosk view). The user's choice, once made with the toggle, is stored in the browser and
+wins over the flag.
+
+```php
+class mwap_tidyb_hubui_ui_myvehicle_map extends mwap_tidyb_hubui_ui_reports_vehicles {
+    public $uiHeaderCollapsedByDefault = true;   // this screen only
+}
+```
+
+Helper methods: `is_ui_header_collapsible()` and `is_ui_header_collapsed_by_default()` (the latter
+walks up to the parent subinterface, so a parent can opt in for a whole section).
+
+**Before touching this mechanism**, read `shared-submodule-changes.md`: it lives in the `mw`
+submodule, it is shared by every project, and it records what is committed and what is still pending.
+
