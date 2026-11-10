@@ -489,9 +489,6 @@ On accept, `mw_placeholders` calls `insertText()` on the input, which runs
   stubbed DOM and a stubbed `tinymce`, covering option merging and defaults, value round trip,
   textarea sync and form submit, read only, placeholders, both picker modes, the iframe modal and
   the delivery protocol.
-- PHP smoke test: `php docs/tools/_test/jsobj_tinymce_helper.php` — 49 checks on the helper
-  (autoload, every setter, plugin merging, placeholder catalog, sharing, and the array
-  serialization cases).
 - Verified manually in the browser: image picked from the file manager lands in the image dialog
   (`src` + `alt`) and the URL is stored absolute; the link dialog gets `href` + `title`; `Esc`
   closes the modal and restores the scroll; the content saved through the form survives a reload;
