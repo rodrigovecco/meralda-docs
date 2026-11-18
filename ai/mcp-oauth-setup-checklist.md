@@ -1,157 +1,162 @@
-# MCP con OAuth: qué montar en un sitio nuevo
+# MCP over OAuth: what to mount on a new site
 
-Checklist para dejar un MCP Meralda funcionando con un conector que **obtiene su
-token solo** (Claude, y cualquier cliente OAuth 2.1). Escrito porque hacerlo
-llevó horas tres veces — lkautomotriz, Money Monks y fractureintime — y siempre
-faltó la misma pieza distinta.
+Checklist for getting a Meralda MCP server working with a connector that
+**obtains its own token** (Claude, and any OAuth 2.1 client). Written because
+doing it has taken hours three separate times — lkautomotriz, Money Monks and
+fractureintime — and each time the missing piece was a different one.
 
-Contexto de los documentos: `docs/ai/well-known-oauth-files.md` (qué son los
-dos documentos) y `docs/ai/mcp-claude-connector-troubleshooting.md` (los ocho
-fallos conocidos). Esto es la **secuencia**, no la teoría.
-
----
-
-## 0. Antes de empezar: decidir dos cosas
-
-- [ ] **¿OAuth abierto o cerrado?** Con `registration_endpoint` publicado
-      (RFC 7591) cualquier cliente se registra solo. Sin él, un conector que
-      exige registro automático no funciona y hay que darle un `client_id` a mano.
-      Lo que protege el sitio no es quién registra sino **quién aprueba**: sin
-      login + consentimiento no hay token.
-- [ ] **¿Qué scopes?** NO puede quedar vacío, y esto costó una tarde. Ver la
-      sección 3-bis: con `scopes_supported: []` el cliente no pide permiso
-      ninguno, el consentimiento muestra *"El cliente no solicitó permisos
-      específicos"*, y al autorizar responde
-      `Debes conceder al menos un permiso para continuar` — sin forma de
-      continuar. Hay que publicar al menos el permiso que las tools necesitan.
+Background: `docs/ai/well-known-oauth-files.md` (what the two documents are) and
+`docs/ai/mcp-claude-connector-troubleshooting.md` (the eight known failures).
+This file is the **sequence**, not the theory.
 
 ---
 
-## 1. Base de datos
+## 0. Before starting: decide two things
 
-- [ ] Las tablas `oauth_clients` y `oauth_auth_codes` existen.
+- [ ] **Open or closed OAuth?** With `registration_endpoint` published (RFC
+      7591) any client registers itself. Without it, a connector that requires
+      automatic registration does not work and has to be handed a `client_id` by
+      hand. What protects the site is not who registers but **who approves**:
+      no login plus consent means no token.
+- [ ] **Which scopes?** It CANNOT be empty, and that cost half a day. See
+      section 3-bis: with `scopes_supported: []` the client asks for no
+      permission, the consent screen says *"The client did not request specific
+      permissions"*, and authorizing answers `You must grant at least one
+      permission to continue` — with no way to continue. At least the permission
+      the tools require has to be published.
+
+---
+
+## 1. Database
+
+- [ ] The tables `oauth_clients` and `oauth_auth_codes` exist.
 
 ```php
-// comprobación rápida por CLI
+// quick CLI check
 $db = $ap->get_submanager("db");
-foreach (array("oauth_clients","oauth_auth_codes") as $t) { ... SHOW TABLES LIKE ... }
+foreach (array("oauth_clients","oauth_auth_codes") as $t) { /* SHOW TABLES LIKE */ }
 ```
 
-Las crean las migraciones del módulo `meralda`. Si faltan:
-`./ws.sh` no las crea — se aplican desde **Configuration → Migraciones de BD**.
+They are created by the `meralda` module's migrations. When missing: `ws.sh`
+does not create them — apply them from **Configuration → DB migrations**.
 
-Síntoma si faltan: `/oauth/register` responde
+Symptom when missing: `/oauth/register` answers
 `500 "OAuth is not enabled on this site"`.
 
 ---
 
-## 2. Habilitar el manager (PHP)
+## 2. Enable the manager (PHP)
 
-- [ ] El users manager del proyecto devuelve `new mwmod_mw_oauth_man($this)`.
+- [ ] The project's users manager returns `new mwmod_mw_oauth_man($this)`.
 
 ```php
-class mwap_xxx_users_usersman extends mwmod_mw_users2_def_usersman {
+class myproject_users_usersman extends mwmod_mw_users2_def_usersman {
     function createOauthMan() { return new mwmod_mw_oauth_man($this); }
 }
 ```
 
-- [ ] El AP del proyecto nombra esa clase:
+- [ ] The project's AP names that class, instead of copying the constructor:
 
 ```php
-function get_users_managers_class_name() { return "mwap_xxx_users_usersman"; }
+// mwmod_mw_ap_def2
+function get_users_managers_class_name() {
+    return "myproject_users_usersman";
+}
 ```
 
-**NO** sobreescribir `create_submanager_user()` del framework: ahí viven los
-roles, permisos y la protección de fuerza bruta, y una copia se desactualiza.
-
-Síntoma si falta: `/oauth/token` y `/oauth/register` existen pero responden 500,
-y el consentimiento dice que OAuth no está disponible.
+**Do not override `create_submanager_user()` to change one line.** It wires
+roles, permissions and brute-force protection; a copied version is out of date
+the first time the framework adds a permission. The class-name hook exists for
+exactly this.
 
 ---
 
-## 3. Los endpoints (`/oauth/`)
+## 3. The endpoints (`/oauth/`)
 
-Tres archivos, mismos nombres en todos los proyectos:
-
-- [ ] `public_html/oauth/init.php`
-- [ ] `public_html/oauth/service.php`
-- [ ] `public_html/oauth/.htaccess`
-
-**LA TRAMPA**: `init.php` incluye el bootstrap del sitio. Contar la profundidad.
+- [ ] `public_html/oauth/init.php` — includes the bootstrap
+- [ ] `public_html/oauth/service.php` — mounts `mwmod_mw_oauth_server("oauth")`
+- [ ] `public_html/oauth/.htaccess` — routes every path to `service.php`
 
 ```
-public_html/oauth/init.php            →  dirname(dirname(__FILE__))   ← DOS
-public_html/service/mcp/init.php      →  dirname×3                    ← TRES
+POST /oauth/register    RFC 7591 — a client registers itself, gets a client_id
+POST /oauth/token       RFC 6749 — code + PKCE verifier → access token
 ```
 
-Copiar el de `service/mcp/` sin ajustar resuelve a `~/init.php`, el include falla,
-la aplicación no arranca, y **el único síntoma es un 500 con cuerpo vacío**. El
-log dice `include(/home/USUARIO/init.php): Failed to open stream` — prestar
-atención a la ruta, no al mensaje.
+Two things in the `.htaccess` that are not optional:
 
-Verificar:
+```apache
+# 1. the runner must not rewrite itself, or the request loops
+RewriteRule ^service\.php$ - [L]
+
+# 2. no trailing-slash redirect: mod_dir answers POST /oauth/token/ with a 301
+#    and most clients resend a 301 as GET, so the exchange arrives as the wrong
+#    method on a path that does not exist
+DirectorySlash Off
+```
+
+Test:
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' -X POST https://HOST/oauth/register \
   -H 'Content-Type: application/json' \
   -d '{"client_name":"probe","redirect_uris":["https://example.com/cb"]}'
-# 201 + client_id  →  bien
-# 500 vacío        →  init.php está un nivel de más (o de menos)
+# 201 + client_id  →  fine
+# 500 empty body   →  init.php is one dirname() too deep (or too shallow)
 ```
 
-Borrar el cliente de prueba al terminar: queda en `oauth_clients` y aparece en
-la pantalla de consentimiento como si fuera real.
+Delete the probe client when done: it stays in `oauth_clients` and shows up on
+the consent screen as if it were real.
 
 ---
 
-## 3-bis. Los scopes: `[]` NO ES "sin restricción", ES UN FLUJO MUERTO
+## 3-bis. Scopes: `[]` is not "no restriction", it is a dead flow
 
-- [ ] `scopes_supported` en RFC 8414 **no vacío**, con el permiso que las tools
-      necesitan.
-- [ ] `scopes_supported` en RFC 9728 con la misma lista.
+- [ ] `scopes_supported` in RFC 8414 is **not empty**, and lists the permissions
+      the tools need.
+- [ ] `scopes_supported` in RFC 9728 lists the same.
 
-**EL ERROR.** Dejar `scopes_supported: []` parece razonable —"los permisos
-reales son la intersección, así que no prometo nada"— y es un callejón sin
-salida:
+**THE MISTAKE.** Leaving `scopes_supported: []` looks reasonable — "the real
+permissions are an intersection, so I promise nothing" — and it is a dead end:
 
 ```
-cliente lee scopes_supported: []   →  no pide `scope` en la autorización
-consent recibe scope vacío          →  buildScopeInfo([]) = []
-consent muestra                    →  "El cliente no solicitó permisos específicos"
-usuario pulsa Authorize            →  grantedScope = []
-                                   →  error no_permissions
-                                   →  "Debes conceder al menos un permiso para continuar"
+client reads scopes_supported: []   →  asks for no scope
+consent receives an empty scope     →  buildScopeInfo([]) = []
+consent shows                       →  "The client did not request specific permissions"
+user presses Authorize              →  grantedScope = []
+                                    →  error no_permissions
+                                    →  "You must grant at least one permission to continue"
 ```
 
-No hay forma de conceder nada porque no hay nada que marcar. El conector no
-puede terminar. **No es un bug del framework: es el framework negándose a
-emitir un token sin permisos, y el documento no ofreció ninguno.**
+There is no way to grant anything because there is nothing to tick. The
+connector cannot finish. **It is not a framework bug: the screen refuses to mint
+a token with no permissions, and the document offered it none.**
 
-**LO QUE EL CONSENT HACE CON EL SCOPE** (`mwmod_mw_users_ui_oauthconsent_main`):
+**WHAT THE CONSENT SCREEN DOES WITH THE SCOPE**
+(`mwmod_mw_users_ui_oauthconsent_main`):
 
-| paso | código |
+| step | code |
 |---|---|
-| parsea `scope` (separado por espacios) | `parseScope($scopeRaw)` |
-| clasifica cada código | `buildScopeInfo()` → `ok` / `warning` / `unknown` |
-| intersección al autorizar | marcado ∩ solicitado ∩ `$user->man->allow($code)` |
+| parses `scope` (space separated) | `parseScope($scopeRaw)` |
+| classifies each code | `buildScopeInfo()` → `ok` / `warning` / `unknown` |
+| intersection on authorize | ticked ∩ requested ∩ `$user->man->allow($code)` |
 
-`scope` no son nombres inventados: son **códigos del catálogo de permisos** del
-proyecto (`$user->man->get_permission_man()->get_items()`). Un código que no
-está en el catálogo sale `unknown` y no se puede marcar.
+`scope` is not an invented name: it is a **code from the project's permission
+catalog** (`$user->man->get_permission_man()->get_items()`). A code that is not
+in the catalog comes back `unknown` and cannot be ticked.
 
-**CUÁNTOS CÓDIGOS: UNO POR COSA QUE SE PUEDE HACER, NO UNO POR SITIO.**
+**HOW MANY CODES: ONE PER THING THAT CAN BE DONE, NOT ONE PER SITE.**
 
-La tentación es un solo `admin`. El problema es que el consentimiento entonces
-no puede decir **qué** se está concediendo, y el usuario aprueba a ciegas. Las
-dimensiones que hay que separar, si el sitio tiene más de una:
+The temptation is a single `admin`. The problem is that the consent screen then
+cannot say **what** is being granted, and the user approves blind. The
+dimensions worth separating, when the site has more than one:
 
-| dimensión | por qué |
+| dimension | why |
 |---|---|
-| **área** (draft / live) | escribir el borrador es recuperable; escribir lo que leen los visitantes es público en el instante |
-| **leer vs escribir** | un cliente que resume una página no necesita poder sobrescribirla |
-| **mensajes del formulario** | traen nombre y dirección de un visitante: leerlos es otro acto, y aprobar un cliente que mantiene el sitio no debe darle la bandeja |
+| **area** (draft / live) | writing the draft is recoverable; writing what visitors read is public the instant it happens |
+| **read vs write** | a client that summarizes a page does not need the power to overwrite it |
+| **contact messages** | they carry a visitor's name and address: reading them is a different act, and approving a client that maintains the site must not hand it the inbox |
 
-En fractureintime quedaron cinco:
+fractureintime ended up with five:
 
 ```
 ws_draft_write   ws_draft_read
@@ -159,22 +164,22 @@ ws_live_write    ws_live_read
 contact_read
 ```
 
-**DÓNDE SE DECLARAN, Y EL ORDEN IMPORTA.** En el usersman del proyecto, pero
-**no en el constructor**: `createRolsAndPermissions()` corre antes de
-`set_permissions_man()`, así que un permiso agregado ahí se agrega a `null` y
-desaparece sin error.
+**WHERE THEY ARE DECLARED, AND THE ORDER MATTERS.** In the project's users
+manager, but **not in the constructor**: `createRolsAndPermissions()` runs
+before `set_permissions_man()`, so a permission added there is added to `null`
+and disappears without an error.
 
 ```php
-// 1. el usersman del proyecto declara códigos + etiquetas + el mapeo
-class mwap_afit_users_usersman extends mwmod_mw_users2_def_usersman {
+// 1. the project's users manager declares codes + labels + the mapping
+class myproject_users_usersman extends mwmod_mw_users2_def_usersman {
     const PERM_DRAFT_WRITE = 'ws_draft_write';
     // ...
     static function area_permission_labels() { return array(/* code => label */); }
     static function permission_code_for_area($role, $write = true) { /* ... */ }
-    function add_area_permissions() { /* add_item() por cada uno + init_rols() */ }
+    function add_area_permissions() { /* add_item() per code + init_rols() */ }
 }
 
-// 2. el AP lo llama DESPUÉS del constructor del framework
+// 2. the AP calls it AFTER the framework's constructor
 function create_submanager_user() {
     $subman = parent::create_submanager_user();
     if ($subman && method_exists($subman, 'add_area_permissions')) {
@@ -184,12 +189,12 @@ function create_submanager_user() {
 }
 ```
 
-**EL MAPEO ES UNA SOLA FUNCIÓN.** Las tools preguntan
-`permission_code_for_area($role, $write)` y el documento publica
-`array_keys(area_permission_labels())`. Un typo no puede hacer que el
-consentimiento ofrezca un código que las tools nunca revisan.
+**THE MAPPING IS ONE FUNCTION.** The tools ask
+`permission_code_for_area($role, $write)` and the document publishes
+`array_keys(area_permission_labels())`. A typo cannot make the consent screen
+offer a code the tools never check.
 
-Verificar que los códigos existen **y que la cuenta los tiene**:
+Verify the codes exist **and that the account holds them**:
 
 ```php
 $u = $ap->get_submanager("user");
@@ -199,73 +204,73 @@ $user = $u->get_user_by_idname("...");
 var_export($user->allow("ws_draft_write"));   // true
 ```
 
-Ojo: `$u->allow(...)` en CLI da `false` aunque el permiso exista — no hay
-usuario en sesión. Hay que preguntarle al **usuario**, no al manager.
+Note: `$u->allow(...)` in CLI returns `false` even when the permission exists —
+there is no user in session. Ask the **user**, not the manager.
 
-**QUÉ PUBLICAR.** Los códigos que las tools realmente exigen:
+**WHAT TO PUBLISH.** The codes the tools actually require:
 
-- tool con `getRequiredPermission()` vacío → **no exige permiso propio**, pero
-  el consent igual necesita al menos uno, así que hay que publicar el que la
-  cuenta ya tiene.
-- tool con un código concreto → publicar ese, y nada más. Publicar de más es
-  prometer permisos que ninguna tool usa.
+- a tool whose `getRequiredPermission()` is empty → **it requires no permission
+  of its own**, but the consent screen still needs at least one, so publish the
+  one the account already holds.
+- a tool with a concrete code → publish that one, and nothing else. Publishing
+  more promises permissions no tool checks.
 
-**EL ERROR DE SIMETRÍA.** Publicar un código que ninguna tool exige "para más
-adelante" hace que el consentimiento muestre una casilla que no cambia nada —
-peor que no mostrarla, porque el usuario cree que concedió algo. Si el código
-todavía no gobierna ninguna operación, decirlo en la etiqueta o no publicarlo.
+**THE SYMMETRY MISTAKE.** Publishing a code no tool requires "for later" puts a
+checkbox on the consent screen that changes nothing — worse than not showing it,
+because the user believes they granted something. If the code does not yet
+govern an operation, say so in the label or do not publish it.
 
 ---
 
-## 4. Los dos documentos de descubrimiento
+## 4. The two discovery documents
 
 - [ ] `public_html/.well-known/oauth-protected-resource.php`  (RFC 9728)
 - [ ] `public_html/.well-known/oauth-authorization-server.php` (RFC 8414)
 - [ ] `public_html/.well-known/.htaccess`
 
-**LAS URLS DEBEN SER ABSOLUTAS.** Un documento con rutas relativas es peor que
-ninguno: el cliente no resuelve nada, compara `resource` carácter por carácter
-con la URL que está llamando, no coincide, y reporta *"couldn't reach the
-server"* con el servidor respondiendo 401 perfectamente. Todos miran el
-firewall y el problema está en el JSON.
+**THE URLS MUST BE ABSOLUTE.** A document with relative paths is worse than
+none: the client resolves nothing, compares `resource` character by character
+against the URL it is calling, does not match, and reports *"couldn't reach the
+server"* while the server answers 401 perfectly. Everyone looks at the firewall
+and the problem is in the JSON.
 
-Construirlas en PHP, nunca como JSON estático:
+Build them in PHP, never as static JSON:
 
-- `resource` = la URL exacta del endpoint MCP, **tomada de la misma constante**
-  que lo monta. Una barra de diferencia y se rechaza el documento.
-- origen = `HTTP_HOST` del request (o `mcp_authorization_server_url` en
-  `cfg.ini` si hay un proxy adelante).
-- si el origen no se puede determinar: **devolver 500 con la razón**, no un 200
-  con basura.
+- `resource` = the exact MCP endpoint URL, **taken from the same constant** that
+  mounts it. One slash of difference and the document is refused.
+- origin = `HTTP_HOST` from the request (or `mcp_authorization_server_url` in
+  `cfg.ini` when a proxy is in front).
+- when the origin cannot be determined: **answer 500 with the reason**, not a 200
+  full of nonsense.
 
-**LAS DOS FORMAS DE CADA RUTA.** Un cliente pide la ruta del recurso sufijada:
+**BOTH FORMS OF EACH PATH.** A client asks for the resource-suffixed path:
 
 ```
 /.well-known/oauth-protected-resource
-/.well-known/oauth-protected-resource/service/mcp/NOMBRE     ← esta también
+/.well-known/oauth-protected-resource/service/mcp/NAME     ← this one too
 /.well-known/oauth-authorization-server
-/.well-known/oauth-authorization-server/service/mcp/NOMBRE   ← y esta
+/.well-known/oauth-authorization-server/service/mcp/NAME   ← and this one
 ```
 
-Servir solo la forma pelada hace que el cliente adivine, y la adivinanza es el
-fallo 6 del doc de troubleshooting.
+Serving only the bare form makes the client guess, and the guess is failure 6 in
+the troubleshooting document.
 
-Verificar (las cuatro):
+Verify (all four):
 
 ```bash
 for p in /.well-known/oauth-protected-resource \
-         /.well-known/oauth-protected-resource/service/mcp/NOMBRE \
+         /.well-known/oauth-protected-resource/service/mcp/NAME \
          /.well-known/oauth-authorization-server \
-         /.well-known/oauth-authorization-server/service/mcp/NOMBRE ; do
+         /.well-known/oauth-authorization-server/service/mcp/NAME ; do
   printf '%-70s %s\n' "$p" "$(curl -s -o /dev/null -w '%{http_code}' https://HOST$p)"
 done
 ```
 
 ---
 
-## 5. La pantalla de consentimiento — LA QUE SIEMPRE SE OLVIDA
+## 5. The consent screen — THE ONE THAT IS ALWAYS FORGOTTEN
 
-- [ ] `create_subinterface_oauthconsent()` registrado en el admin del proyecto.
+- [ ] `create_subinterface_oauthconsent()` registered in the project's admin.
 
 ```php
 function create_subinterface_oauthconsent() {
@@ -273,81 +278,116 @@ function create_subinterface_oauthconsent() {
 }
 ```
 
-La clase viene con el framework y la URL la publica el documento de RFC 8414
-(`authorization_endpoint`). **Si no está registrada, esa URL renderiza el
-formulario de login y nada más**: el flujo no se puede completar.
+The class ships with the framework and the RFC 8414 document publishes the URL
+(`authorization_endpoint`). **If it is not registered, that URL renders the
+login form and nothing else**: the flow cannot be completed.
 
-El síntoma es cruel porque todo lo demás responde bien: el registro da 201, el
-descubrimiento da 200, y el conector se queda esperando.
+The symptom is cruel because everything else answers correctly: registration
+gives 201, discovery gives 200, and the connector just waits.
 
-Verificar **con sesión iniciada**, que es como la abre el conector:
+Verify **signed in**, which is how the connector opens it:
 
 ```
 https://HOST/admin/index.php?ui=oauthconsent
 ```
 
-- con sesión → pantalla de autorización (nombre del token, permisos, Authorize/Deny)
-- sin sesión → login (correcto: es el muro, no un fallo)
+- signed in → the authorization screen (token name, permissions, Authorize/Deny)
+- signed out → login (correct: that is the wall, not a failure)
+
+New codes on this screen need English entries, or the page mixes languages. See
+section 9.
 
 ---
 
-## 6. El servidor MCP acepta los dos tokens
+## 6. The MCP server accepts both tokens
 
-- [ ] `loginUserByToken()` acepta el `oa1.*` derivado, no solo el JWT del panel.
+- [ ] `loginUserByToken()` accepts the derived `oa1.*`, not only the panel JWT.
 
-Si solo acepta el JWT: el intercambio de token devuelve **200 con un access
-token real**, y después **todas** las llamadas MCP dan 401. Es el fallo 8 del
-doc de troubleshooting.
+If it only accepts the JWT: the token exchange returns **200 with a real access
+token**, and then **every** MCP call returns 401. That is failure 8 in the
+troubleshooting document.
 
 ---
 
-## 7. Despliegue
+## 7. Deployment
 
-- [ ] `.well-known` y `oauth` están en `PUBLIC_ITEMS` de `updategit.sh`.
+- [ ] `.well-known` and `oauth` are in `PUBLIC_ITEMS` of `updategit.sh`.
 
-**El script vive en el servidor y no se actualiza solo.** Un `.sh` editado en
-local no cambia nada hasta subirlo. Si no, el deploy dice "complete" y las
-carpetas nuevas no aparecen:
+**The script lives on the server and does not update itself.** A `.sh` edited
+locally changes nothing until it is uploaded. Otherwise the deploy says
+"complete" and the new folders never appear:
 
 ```
 -> oauth
 -> outofservice
 ...
-[Done] Deploy complete.
 ```
 
-Si `-> oauth` no está en la lista, el servidor tiene el script viejo.
-
-- [ ] `public_html/.well-known/.htaccess` no lo pisa otra regla
-      (el docroot tiene `RewriteEngine off`; `.well-known` enciende el suyo).
+- [ ] `index.html` is deliberately NOT in that list: the front page is generated
+      from the live copy. Copying a repository file over it would replace the
+      published page.
 
 ---
 
-## 8. Verificación final, en este orden
+## 8. Final verification, in this order
 
-```
-1. DCR            POST /oauth/register                    → 201 + client_id
-2. token malo     POST /oauth/token (código inválido)     → 400 invalid_grant
-3. token GET      GET  /oauth/token                       → 405
-4. consent        GET  ?ui=oauthconsent CON sesión        → pantalla, no login
-5. MCP sin token  POST /service/mcp/NOMBRE                → 401 + WWW-Authenticate
-6. conector       agregar la URL en el cliente            → completa el flujo
+```bash
+# 1. discovery, both forms, both documents          → 200 + application/json
+# 2. POST /oauth/register                           → 201 + client_id
+# 3. GET /oauth/token                               → 405 (POST only)
+# 4. POST /oauth/token with a bogus code            → 400 invalid_grant
+# 5. consent URL                                    → the screen, when signed in
+# 6. POST /service/mcp/NAME without a token         → 401 + WWW-Authenticate
 ```
 
-Si el paso 4 devuelve el login **teniendo sesión**, falta la sección 5.
+Then the real test, which no curl can do: add the connector, sign in when it
+sends you to the consent screen, tick the permissions, authorize, and confirm
+the client lists the tools.
 
 ---
 
-## Errores que ya cometimos, con su forma exacta
+## 9. Translating the consent screen
 
-| síntoma | causa | dónde |
+The screen resolves its messages through the `def` message manager (the app's
+`get_lngmsgsmancod()`), so in an English site the entries go in
+`src/mwap/lngmsgs/en/def.txt`, one `code message` per line.
+
+Without them the page is half Spanish: the framework ships Spanish literals as
+defaults and those are what renders when a code has no entry.
+
+Codes used by the consent screen:
+
+```
+authorize_access_title  access_request_title   requests_access
+unavailable_permissions_note  requested_permissions  no_specific_permissions
+unknown_permission  permission_not_available  authorize_btn  deny_btn
+no_permissions_granted  session_required  invalid_redirect_uri  unknown_client
+oauth_disabled  invalid_action  nonce_error  error_generic
+token_system_unavailable  token_creation_failed  authcode_creation_failed
+token_settings_title  token_name_label  token_expiry_label  expiry_no_expiry
+expiry_7_days  expiry_30_days  expiry_90_days  expiry_365_days
+creating_token  token_created_title  token_created_intro  token_copied
+token_copy_fail  resource_label  redirect_to_label  code_will_be_sent_to
+send_code_btn  redirecting
+```
+
+`register_lng_msg = 1` in `cfg.ini` collects missing ones while browsing (see the
+note in that file), but it captures the literal from the CODE, which is Spanish.
+Translating the list above by hand is faster and produces better sentences.
+
+---
+
+## Mistakes already made, with their exact shape
+
+| symptom | cause | where |
 |---|---|---|
-| 500 con cuerpo vacío en `/oauth/*` | `init.php` con un `dirname()` de más | §3 |
-| "couldn't reach the server" con el server en 401 | `authorization_servers` ausente o URLs relativas | §4 |
-| 201 en registro y espera infinita | consentimiento no registrado | §5 |
-| 200 al cambiar el código y 401 en todo lo demás | el endpoint no lee el `oa1.*` | §6 |
-| deploy "complete" sin las carpetas nuevas | `updategit.sh` del servidor desactualizado | §7 |
-| 301 en `POST /oauth/token/` | `DirectorySlash` de mod_rewrite | §3 |
-| "El cliente no solicitó permisos específicos" + "Debes conceder al menos un permiso" | `scopes_supported: []` | §3-bis |
-| permiso agregado que no aparece en el catálogo | declarado en el constructor, antes de `set_permissions_man()` | §3-bis |
-| casilla de permiso que no cambia nada | código publicado que ninguna tool exige | §3-bis |
+| 500 with an empty body on `/oauth/*` | `init.php` with one `dirname()` too many | §3 |
+| "couldn't reach the server" with the server on 401 | `authorization_servers` missing or relative URLs | §4 |
+| 201 on registration and an endless wait | consent screen not registered | §5 |
+| 200 on the code exchange and 401 on everything else | the endpoint does not read `oa1.*` | §6 |
+| deploy "complete" without the new folders | `updategit.sh` on the server out of date | §7 |
+| 301 on `POST /oauth/token/` | `DirectorySlash` | §3 |
+| "The client did not request specific permissions" + "You must grant at least one" | `scopes_supported: []` | §3-bis |
+| a permission added that never appears in the catalog | declared in the constructor, before `set_permissions_man()` | §3-bis |
+| a permission checkbox that changes nothing | a published code no tool requires | §3-bis |
+| half the consent screen in Spanish on an English site | no `en/` entries for its codes | §9 |

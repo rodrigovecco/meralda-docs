@@ -1,56 +1,59 @@
-# Archivos `.well-known/` para OAuth 2.1
+# The `.well-known/` files for OAuth 2.1
 
-Metadatos de descubrimiento OAuth: **RFC 9728** (protected resource) y **RFC 8414**
-(authorization server). Son la primera cosa que un conector lee, antes de tener
-token, y lo que deciden si puede pedir uno solo o no.
+OAuth discovery metadata: **RFC 9728** (protected resource) and **RFC 8414**
+(authorization server). They are the first thing a connector reads, before it
+holds a token, and they decide whether it can ask for one at all.
 
 ---
 
-## Dos formas de servirlos, y esta instalación usa la segunda
+## Two ways to serve them, and this installation uses the second
 
-| | MeraldaTSX / lkautomotriz | **Money Monks (este repo)** |
+| | MeraldaTSX / lkautomotriz | **Money Monks / fractureintime** |
 |---|---|---|
-| Cómo se sirven | dos JSON estáticos | scripts PHP que los construyen |
-| Dominio | escrito dentro del archivo | derivado del request / `cfg.ini` |
-| Al crear un sitio | editar el dominio a mano y subir por SFTP | nada que editar |
-| Funciona en staging/dev | no, si el archivo no se reescribe | sí |
+| How they are served | two static JSON files | PHP scripts that build them |
+| Domain | written inside the file | derived from the request / `cfg.ini` |
+| When creating a site | edit the domain by hand and upload over SFTP | nothing to edit |
+| Works on staging/dev | no, unless the file is rewritten | yes |
 
-La forma estática (el resto de este documento) es la de los sitios que clonaron
-`public_html/.well-known/` antes de que existiera el builder. **En Money Monks no
-se editan JSON**: los dos documentos los genera `src/public_html/.well-known/` a
-partir de `mwap_mm_site_mcp`, y `.well-known/.htaccess` los rutea:
+The static form (the rest of this document) is what sites that cloned
+`public_html/.well-known/` before the builder existed still use. **In Money
+Monks and fractureintime the JSON is not edited**: the two documents are built
+by a small PHP class from the request, and `.well-known/.htaccess` routes them:
 
 ```
 .well-known/
-├── .htaccess                  ← rutas: 3 paths → 2 runners
-├── metadata.php               ← RFC 9728 protegido (protected-resource)
-└── authorization-server.php   ← RFC 8414 (authorization-server)
+├── .htaccess                              ← routes: 4 paths → 2 runners
+├── oauth-protected-resource.php           ← RFC 9728 (protected resource)
+└── oauth-authorization-server.php         ← RFC 8414 (authorization server)
 ```
 
-Por qué importa que sean dinámicos: el documento contiene URLs absolutas
-(`resource`, `issuer`, `token_endpoint`, `registration_endpoint`). Escritas a mano
-son correctas en la máquina que las escribió y **falsas en todas las demás**, y el
-síntoma no aparece en ningún log — el cliente sólo dice "no se pudo conectar".
+Why dynamic matters: the document contains absolute URLs (`resource`, `issuer`,
+`token_endpoint`, `registration_endpoint`). Written by hand they are correct on
+the machine that wrote them and **false everywhere else**, and the symptom
+appears in no log — the client only says "couldn't connect".
 
-El origen lo determina `mwap_mm_site_mcp::request_base()`; se puede fijar con
-`mcp_authorization_server_url` en `src/app/cfg.ini` si hay un proxy adelante que
-reescribe el host.
+The origin comes from `HTTP_HOST`, and can be pinned with
+`mcp_authorization_server_url` in `cfg.ini` when a proxy in front rewrites the
+host.
+
+If the origin cannot be determined, **answer 500 with the reason**. A 200 full of
+relative paths is worse than an error: nobody diagnoses it.
 
 ---
 
-## Estructura estática (sitios con JSON, fuera de este repo)
+## Static structure (sites with JSON, outside this repo)
 
 ```
 public_html/
 └── .well-known/
-    ├── .htaccess                    ← forzar Content-Type: application/json
-    ├── oauth-protected-resource     ← RFC 9728: apunta al AS
-    └── oauth-authorization-server   ← RFC 8414: describe los endpoints OAuth
+    ├── .htaccess                    ← force Content-Type: application/json
+    ├── oauth-protected-resource     ← RFC 9728: points at the AS
+    └── oauth-authorization-server   ← RFC 8414: describes the OAuth endpoints
 ```
 
 ---
 
-## `.htaccess` (siempre igual, no cambia entre proyectos)
+## `.htaccess` (always the same, does not change between projects)
 
 ```apache
 # Force all extensionless files in this directory to be served as JSON.
@@ -62,26 +65,37 @@ public_html/
 Options -Indexes
 ```
 
+For the PHP variant, the routing has to cover **both forms of each path** — the
+bare one and the one with the resource path appended (RFC 8414 §3.1, RFC 9728
+§3.1), because that is what a client asks for:
+
+```apache
+RewriteRule ^oauth-protected-resource$        oauth-protected-resource.php  [L]
+RewriteRule ^oauth-protected-resource/.+$     oauth-protected-resource.php  [L]
+RewriteRule ^oauth-authorization-server$      oauth-authorization-server.php [L]
+RewriteRule ^oauth-authorization-server/.+$   oauth-authorization-server.php [L]
+```
+
 ---
 
 ## `oauth-protected-resource`
 
-Indica qué servidor de autorización protege este recurso.
-El campo `resource` debe coincidir **exactamente** con la URL del endpoint MCP.
+Says which authorization server protects this resource.
+The `resource` field must match the MCP endpoint URL **exactly**.
 
-Incluye metadatos adicionales para que clientes OAuth (como Open Code) sepan qué nombre
-darle al token y qué scopes están disponibles.
+It carries extra metadata so OAuth clients know what to name the token and which
+scopes are available.
 
 ```json
 {
-  "resource": "https://<dominio>/service/mcp/",
-  "authorization_servers": ["https://<dominio>"],
-  "scopes_supported": ["catalog_read", "catalog_admin"],
-  "resource_name": "MeraldaTSX MCP"
+  "resource": "https://<domain>/service/mcp/NAME",
+  "authorization_servers": ["https://<domain>"],
+  "scopes_supported": ["scope_one", "scope_two"],
+  "resource_name": "My site (MCP)"
 }
 ```
 
-**Ejemplo lkautomotriz.com:**
+**Example, lkautomotriz.com:**
 ```json
 {
   "resource": "https://lkautomotriz.com/service/mcp/",
@@ -91,36 +105,42 @@ darle al token y qué scopes están disponibles.
 }
 ```
 
-**Campos:**
-- `resource`: URL exacta del endpoint protegido
-- `authorization_servers`: lista de URLs de servidores OAuth que protegen este recurso
+**Fields:**
+- `resource`: exact URL of the protected endpoint
+- `authorization_servers`: list of OAuth server URLs that protect this resource
 
-  > **Este campo es el que decide si un conector puede firmar su propio token.**
-  > Si falta, el cliente queda en la duda entre "el origen del endpoint ES el
-  > authorization server" y "no hay OAuth": claude.ai hace lo segundo y reporta
-  > *"Couldn't reach <nombre>. You can check the server URL and verify the server is
-  > running"* — con el servidor respondiendo 401 perfectamente y **sin nombrar
-  > ninguna URL**. No es un problema de red y no se arregla en el firewall. Ver
-  > `mcp-claude-connector-troubleshooting.md`, fallo 6.
+  > **This field is the one that decides whether a connector can sign its own
+  > token.** When it is missing, the client is left guessing between "the
+  > endpoint's origin IS the authorization server" and "there is no OAuth":
+  > claude.ai picks the second and reports *"Couldn't reach <name>. You can check
+  > the server URL and verify the server is running"* — with the server answering
+  > 401 perfectly and **naming no URL at all**. It is not a network problem and
+  > it is not fixed in the firewall. See
+  > `mcp-claude-connector-troubleshooting.md`, failure 6.
 
-- `scopes_supported`: scopes reales que usan las tools del MCP:
-  - `catalog_read` → tools de lectura (`list_makes`, `list_models`, `list_variants`, …)
-  - `catalog_admin` → tools de escritura (`create_*`, `update_*`, `delete_*`, `set_*`)
-- `resource_name`: nombre sugerido para mostrar al crear el token (usa `mcpServerName`
-  del `mtsx mainman`, p.ej. `lkautomotriz-mcp`)
+- `scopes_supported`: the real scopes the MCP tools use.
+  - `catalog_read` → read tools (`list_makes`, `list_models`, `list_variants`, …)
+  - `catalog_admin` → write tools (`create_*`, `update_*`, `delete_*`, `set_*`)
+
+  **An empty list is not "no restriction", it is a dead flow**: the client then
+  asks for no scope, and the consent screen cannot grant one. See
+  `mcp-oauth-setup-checklist.md`, section 3-bis.
+
+- `resource_name`: suggested name to show when creating the token (from
+  `mcpServerName` on the `mtsx mainman`, e.g. `lkautomotriz-mcp`)
 
 ---
 
 ## `oauth-authorization-server`
 
-Describe todos los endpoints OAuth del sitio. Reemplazar `<dominio>` con el dominio real.
+Describes every OAuth endpoint of the site. Replace `<domain>` with the real one.
 
 ```json
 {
-  "issuer": "https://<dominio>",
-  "authorization_endpoint": "https://<dominio>/admin/index.php?ui=oauthconsent",
-  "token_endpoint": "https://<dominio>/oauth/token",
-  "registration_endpoint": "https://<dominio>/oauth/register",
+  "issuer": "https://<domain>",
+  "authorization_endpoint": "https://<domain>/admin/index.php?ui=oauthconsent",
+  "token_endpoint": "https://<domain>/oauth/token",
+  "registration_endpoint": "https://<domain>/oauth/register",
   "response_types_supported": ["code"],
   "grant_types_supported": ["authorization_code", "refresh_token"],
   "code_challenge_methods_supported": ["S256"],
@@ -128,36 +148,53 @@ Describe todos los endpoints OAuth del sitio. Reemplazar `<dominio>` con el domi
 }
 ```
 
-**Campos y a qué apuntan (implementación Meralda OAuth 2.1 + PKCE):**
-- `authorization_endpoint`: la **consent UI del admin**
-  (`mwmod_mw_users_ui_oauthconsent_main`, subinterface `oauthconsent`). Recibe la
-  petición de autorización estándar por GET (`client_id`, `redirect_uri`,
+**Fields and what they point at (Meralda OAuth 2.1 + PKCE implementation):**
+- `authorization_endpoint`: the admin's **consent UI**
+  (`mwmod_mw_users_ui_oauthconsent_main`, subinterface `oauthconsent`). It takes
+  the standard authorization request over GET (`client_id`, `redirect_uri`,
   `response_type=code`, `code_challenge`, `code_challenge_method=S256`, `scope`,
-  `state`), aplica el login wall, y tras aprobar redirige a `redirect_uri?code=&state=`.
+  `state`), applies the login wall, and after approval redirects to
+  `redirect_uri?code=&state=`.
+
+  **It must be registered as a subinterface of the project's admin**, or that URL
+  renders the login form and nothing else — the flow cannot finish. See
+  `mcp-oauth-setup-checklist.md`, section 5.
+
 - `token_endpoint`: `/oauth/token` → `mwmod_mw_oauth_endpoints_token`
-  (grant `authorization_code` y `refresh_token`). Devuelve `oa1.*` / `or1.*`.
+  (grants `authorization_code` and `refresh_token`). Returns `oa1.*` / `or1.*`.
 - `registration_endpoint`: `/oauth/register` → `mwmod_mw_oauth_endpoints_register`
-  (RFC 7591 DCR, clientes públicos).
-- Ambos `/oauth/*` los sirve un único entry point `public_html/oauth/service.php`
-  que monta `mwmod_mw_oauth_server` en base `oauth` y despacha por path.
+  (RFC 7591 DCR, public clients).
+- Both `/oauth/*` are served by a single entry point,
+  `public_html/oauth/service.php`, which mounts `mwmod_mw_oauth_server` on base
+  `oauth` and dispatches by path.
 
 ---
 
-## Verificar que funciona
+## Verifying it works
 
-Después de subir, los tres archivos deben responder con `Content-Type: application/json`:
+After uploading, all four URLs must answer with
+`Content-Type: application/json`:
 
 ```bash
-curl -i https://<dominio>/.well-known/oauth-protected-resource
-curl -i https://<dominio>/.well-known/oauth-authorization-server
+curl -i https://<domain>/.well-known/oauth-protected-resource
+curl -i https://<domain>/.well-known/oauth-authorization-server
+curl -i https://<domain>/.well-known/oauth-protected-resource/service/mcp/NAME
+curl -i https://<domain>/.well-known/oauth-authorization-server/service/mcp/NAME
 ```
 
-Ambos deben devolver `HTTP/2 200` y el header `content-type: application/json`.
+All four must return `HTTP/2 200` and the `content-type: application/json`
+header. A 404 on the suffixed pair means the `.htaccess` only routes the bare
+form.
 
 ---
 
-## Nota sobre versionado
+## Note on versioning
 
-La carpeta `src/public_html/.well-known/` está versionada en git. Contiene el
-dominio de producción hardcodeado, así que al crear un nuevo sitio hay que
-ajustar el dominio en los dos archivos JSON y desplegarlos por SFTP.
+`src/public_html/.well-known/` is tracked in git.
+
+With the **static** variant the production domain is hardcoded inside the two
+JSON files, so creating a new site means editing the domain in both and uploading
+them by SFTP.
+
+With the **PHP** variant there is nothing to edit: the domain comes from the
+request, and a new site is correct as soon as the files are deployed.
