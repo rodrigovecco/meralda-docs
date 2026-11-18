@@ -2,6 +2,81 @@
 
 This document explains how to build forms using the `mwmod_mw_jsobj_inputs_*` classes. These are the **only** way to create forms in Meralda UIs — do NOT use native HTML forms or DevExtreme form components.
 
+---
+
+## ❌ Never use the `datafield` forms
+
+The `mwmod_mw_datafield_*` family is **deprecated and removed from the workflow**. If you see any of these in a class, the form is wrong — rewrite it with `mwmod_mw_jsobj_inputs_*`:
+
+| Deprecated | Why it fails |
+|---|---|
+| `mwmod_mw_ui_itemsman_new` / `mwmod_mw_ui_itemsman_edit` | Render through `new_frm()` + datafield creator |
+| `new_frm()` | Builds `mwmod_mw_datafield_frm` |
+| `get_new_item_datafield_creator()` | Builds `mwmod_mw_datafield_creator` |
+| `get_item_datafield_creator()` / `get_datafield_creator()` | Same, for the edit side |
+| `$cr->items_pref = "ndnew"` / `$cr->add_submit(...)` | datafield creator API |
+
+**Symptom when they are used:** the page renders but the browser throws
+
+```txt
+Uncaught ReferenceError: ___mw_main_frm_manager is not defined
+```
+
+The datafield markup expects a JS bundle (`___mw_main_frm_manager`) that the current UI does not load, so the form never initialises, submits nothing and silently does nothing.
+
+---
+
+## ✅ Build the form on `mwmod_mw_ui_base_frm`
+
+`mwmod_mw_ui_base_frm` (`src/mwap/modules/mw/ui/base/frm.php`) is the abstract base that wires a jsobj form end to end: JS/CSS registration, the form container, submission and the request read.
+
+```php
+class mwap_ni_sales_new extends mwmod_mw_ui_base_frm {
+
+    function __construct($cod, $parentUI) {
+        $this->init_as_subinterface($cod, $parentUI);
+        $this->set_lngmsgsmancod("ni");
+        $this->frmTitle = $this->lng_get_msg_txt("new_sale", "Nueva venta");
+    }
+
+    /** Hook: `get_items_man()` is final, override this one. */
+    function load_items_man() {
+        return $this->mainap->get_submanager("sales");
+    }
+
+    /** Hook: fields of the form. $gr is the "data" group. */
+    function set_js_inputs_data($gr) {
+        $input = $gr->addNewChild("sales_code", "input");
+        $input->setLabel($this->lng_get_msg_txt("code", "Código"));
+        $input->addValidationRequired();
+    }
+
+    /** Hook: receives nd[data] once the request posted a valid form. */
+    function saveData($nd) {
+        if (!$man = $this->load_items_man()) {
+            return false;
+        }
+        return $man->create_new_item($nd);
+    }
+}
+```
+
+What the base provides, so you do not write it again:
+
+| Provided | Effect |
+|---|---|
+| `prepare_before_exec_no_sub_interface()` | Loads `inputs/inputs.js`, `inputs/frm.js`, `mwui.js`, `mwui_frm.js`, dates, ajax… |
+| `create_js_ctrs()` | `mwmod_mw_jsobj_inputs_frmonpanel("nd")` + submit button |
+| `set_js_inputs()` | Creates `nd[data]` and calls `set_js_inputs_data($gr)` |
+| `save_from_request()` | Reads `nd[data]` with `mwmod_mw_helper_inputvalidator_request` |
+| `do_exec_page_in()` | Renders `ctrs` and emits the `init()` + `append_to_container()` JS |
+
+**POST shape:** `nd[data][field]`. `saveData($nd)` receives the inner array already unwrapped.
+
+Override `do_exec_page_in()` only when the response must differ from "re-render the form" — for example when the creation produces values that have to be shown once. Call `$this->save_from_request()` first, then branch on the result.
+
+---
+
 ## Overview
 
 Forms are built as JavaScript object trees in PHP, then rendered to a DOM container via `append_to_container()`. The form handles submission, validation, and file uploads automatically.

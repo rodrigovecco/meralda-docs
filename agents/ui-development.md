@@ -163,9 +163,56 @@ class mwap_mam_sales_uiadmin_report extends mwmod_mw_ui_base_dxtbladminquery {
 
 ---
 
+## Creation: inline grid insert vs. dedicated sub-UI
+
+Before writing a grid, decide where creation happens. The grid is a good fit far less often than it looks.
+
+### Use the grid's inline insert (`addRowButton`) only when
+
+- the admin types **every** value of the new row, and
+- the row is what the admin needs to see afterwards.
+
+```php
+function allowInsert() { return $this->allow("admin"); }
+```
+
+### Use a dedicated "new" sub-UI when any of this is true
+
+- the row is **produced by the system** (codes, tokens, hashes, timestamps, ciphertext);
+- the response has to **show something that cannot be recovered later** (a generated password, an access code, a one-time URL);
+- the form needs inputs the grid cannot render (textarea for a secret, grouped fields, file upload, a wizard);
+- the creation has side effects beyond the row (sending mail, calling an API).
+
+```php
+class mwap_ni_uiadmin_invoices extends mwmod_mw_ui_base_dxtbladmin {
+
+    function allowcreatesubinterfacechildbycode() { return true; }
+
+    function _do_create_subinterface_child_new($cod) {
+        return new mwap_ni_uiadmin_invoices_new($cod, $this);
+    }
+
+    function _do_create_subinterface_child_item($cod) {
+        // editor, resolved from &iditem=
+    }
+
+    // No inline insert: the toolbar button opens the sub-UI instead.
+    function allowInsert()  { return false; }
+    function allowUpdate()  { return false; }
+}
+```
+
+The toolbar button is a custom item that navigates to `$this->get_url_subinterface("new")`; the grid keeps reads and deletes inline.
+
+**Do not fight the grid into behaving like a form.** Bolting extra panels onto a grid that cannot store what it must return is the mistake this rule exists to prevent.
+
+---
+
 ## Forms (`jsobj_inputs`)
 
-**Do NOT use native HTML forms or DevExtreme form components.** Always use `mwmod_mw_jsobj_inputs_*`.
+**Do NOT use native HTML forms or DevExtreme form components.** Always use `mwmod_mw_jsobj_inputs_*`, and build them on `mwmod_mw_ui_base_frm`.
+
+> The `mwmod_mw_datafield_*` family, `new_frm()` and `get_new_item_datafield_creator()` are **deprecated**. They render markup whose JS bundle (`___mw_main_frm_manager`) is not loaded by the current UI, so the form silently does nothing. See [jsobj Inputs Pattern](../ai/user-interfaces/jsobj-inputs-pattern.md#-never-use-the-datafield-forms).
 
 ```php
 function do_exec_page_in() {
