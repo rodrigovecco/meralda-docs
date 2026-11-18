@@ -18,10 +18,12 @@ fallos conocidos). Esto es la **secuencia**, no la teoría.
       exige registro automático no funciona y hay que darle un `client_id` a mano.
       Lo que protege el sitio no es quién registra sino **quién aprueba**: sin
       login + consentimiento no hay token.
-- [ ] **¿Qué scopes?** Lo normal es ninguno. Los permisos reales son la
-      intersección entre lo que la cuenta tiene, lo que se marca en el
-      consentimiento y lo que el token maestro declara. Inventar nombres de
-      scope promete una granularidad que el token endpoint no aplica.
+- [ ] **¿Qué scopes?** NO puede quedar vacío, y esto costó una tarde. Ver la
+      sección 3-bis: con `scopes_supported: []` el cliente no pide permiso
+      ninguno, el consentimiento muestra *"El cliente no solicitó permisos
+      específicos"*, y al autorizar responde
+      `Debes conceder al menos un permiso para continuar` — sin forma de
+      continuar. Hay que publicar al menos el permiso que las tools necesitan.
 
 ---
 
@@ -99,6 +101,64 @@ curl -s -o /dev/null -w '%{http_code}\n' -X POST https://HOST/oauth/register \
 
 Borrar el cliente de prueba al terminar: queda en `oauth_clients` y aparece en
 la pantalla de consentimiento como si fuera real.
+
+---
+
+## 3-bis. Los scopes: `[]` NO ES "sin restricción", ES UN FLUJO MUERTO
+
+- [ ] `scopes_supported` en RFC 8414 **no vacío**, con el permiso que las tools
+      necesitan.
+- [ ] `scopes_supported` en RFC 9728 con la misma lista.
+
+**EL ERROR.** Dejar `scopes_supported: []` parece razonable —"los permisos
+reales son la intersección, así que no prometo nada"— y es un callejón sin
+salida:
+
+```
+cliente lee scopes_supported: []   →  no pide `scope` en la autorización
+consent recibe scope vacío          →  buildScopeInfo([]) = []
+consent muestra                    →  "El cliente no solicitó permisos específicos"
+usuario pulsa Authorize            →  grantedScope = []
+                                   →  error no_permissions
+                                   →  "Debes conceder al menos un permiso para continuar"
+```
+
+No hay forma de conceder nada porque no hay nada que marcar. El conector no
+puede terminar. **No es un bug del framework: es el framework negándose a
+emitir un token sin permisos, y el documento no ofreció ninguno.**
+
+**LO QUE EL CONSENT HACE CON EL SCOPE** (`mwmod_mw_users_ui_oauthconsent_main`):
+
+| paso | código |
+|---|---|
+| parsea `scope` (separado por espacios) | `parseScope($scopeRaw)` |
+| clasifica cada código | `buildScopeInfo()` → `ok` / `warning` / `unknown` |
+| intersección al autorizar | marcado ∩ solicitado ∩ `$user->man->allow($code)` |
+
+`scope` no son nombres inventados: son **códigos del catálogo de permisos** del
+proyecto (`$user->man->get_permission_man()->get_items()`). Un código que no
+está en el catálogo sale `unknown` y no se puede marcar.
+
+**QUÉ PUBLICAR.** El permiso que las tools declaran en
+`getRequiredPermission()`. Hay dos casos y los dos hay que mirarlos:
+
+- tool con `getRequiredPermission()` vacío → **no exige permiso propio**. El
+  proyecto sigue necesitando publicar *algo* (el permiso que ya tiene el dueño,
+  p. ej. `admin`), porque el consent exige al menos uno.
+- tool con un código concreto → publicar ese código, y nada más. Publicar de
+  más es prometer permisos que ninguna tool usa.
+
+```php
+static function get_scopes() {
+    // El catálogo del proyecto, no una lista inventada: el consent rechaza
+    // cualquier código que no exista (status "unknown").
+    return array('admin');
+}
+```
+
+Verificar: con sesión iniciada, abrir el `authorization_endpoint` con
+`&scope=admin` y comprobar que aparece **una casilla marcable**. Si sale
+"no solicitó permisos específicos", el documento no está publicando la lista.
 
 ---
 
