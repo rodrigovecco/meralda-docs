@@ -139,26 +139,81 @@ emitir un token sin permisos, y el documento no ofreció ninguno.**
 proyecto (`$user->man->get_permission_man()->get_items()`). Un código que no
 está en el catálogo sale `unknown` y no se puede marcar.
 
-**QUÉ PUBLICAR.** El permiso que las tools declaran en
-`getRequiredPermission()`. Hay dos casos y los dos hay que mirarlos:
+**CUÁNTOS CÓDIGOS: UNO POR COSA QUE SE PUEDE HACER, NO UNO POR SITIO.**
 
-- tool con `getRequiredPermission()` vacío → **no exige permiso propio**. El
-  proyecto sigue necesitando publicar *algo* (el permiso que ya tiene el dueño,
-  p. ej. `admin`), porque el consent exige al menos uno.
-- tool con un código concreto → publicar ese código, y nada más. Publicar de
-  más es prometer permisos que ninguna tool usa.
+La tentación es un solo `admin`. El problema es que el consentimiento entonces
+no puede decir **qué** se está concediendo, y el usuario aprueba a ciegas. Las
+dimensiones que hay que separar, si el sitio tiene más de una:
+
+| dimensión | por qué |
+|---|---|
+| **área** (draft / live) | escribir el borrador es recuperable; escribir lo que leen los visitantes es público en el instante |
+| **leer vs escribir** | un cliente que resume una página no necesita poder sobrescribirla |
+| **mensajes del formulario** | traen nombre y dirección de un visitante: leerlos es otro acto, y aprobar un cliente que mantiene el sitio no debe darle la bandeja |
+
+En fractureintime quedaron cinco:
+
+```
+ws_draft_write   ws_draft_read
+ws_live_write    ws_live_read
+contact_read
+```
+
+**DÓNDE SE DECLARAN, Y EL ORDEN IMPORTA.** En el usersman del proyecto, pero
+**no en el constructor**: `createRolsAndPermissions()` corre antes de
+`set_permissions_man()`, así que un permiso agregado ahí se agrega a `null` y
+desaparece sin error.
 
 ```php
-static function get_scopes() {
-    // El catálogo del proyecto, no una lista inventada: el consent rechaza
-    // cualquier código que no exista (status "unknown").
-    return array('admin');
+// 1. el usersman del proyecto declara códigos + etiquetas + el mapeo
+class mwap_afit_users_usersman extends mwmod_mw_users2_def_usersman {
+    const PERM_DRAFT_WRITE = 'ws_draft_write';
+    // ...
+    static function area_permission_labels() { return array(/* code => label */); }
+    static function permission_code_for_area($role, $write = true) { /* ... */ }
+    function add_area_permissions() { /* add_item() por cada uno + init_rols() */ }
+}
+
+// 2. el AP lo llama DESPUÉS del constructor del framework
+function create_submanager_user() {
+    $subman = parent::create_submanager_user();
+    if ($subman && method_exists($subman, 'add_area_permissions')) {
+        $subman->add_area_permissions();
+    }
+    return $subman;
 }
 ```
 
-Verificar: con sesión iniciada, abrir el `authorization_endpoint` con
-`&scope=admin` y comprobar que aparece **una casilla marcable**. Si sale
-"no solicitó permisos específicos", el documento no está publicando la lista.
+**EL MAPEO ES UNA SOLA FUNCIÓN.** Las tools preguntan
+`permission_code_for_area($role, $write)` y el documento publica
+`array_keys(area_permission_labels())`. Un typo no puede hacer que el
+consentimiento ofrezca un código que las tools nunca revisan.
+
+Verificar que los códigos existen **y que la cuenta los tiene**:
+
+```php
+$u = $ap->get_submanager("user");
+foreach ($u->get_permission_man()->get_items() as $it) { echo $it->get_code(), "\n"; }
+
+$user = $u->get_user_by_idname("...");
+var_export($user->allow("ws_draft_write"));   // true
+```
+
+Ojo: `$u->allow(...)` en CLI da `false` aunque el permiso exista — no hay
+usuario en sesión. Hay que preguntarle al **usuario**, no al manager.
+
+**QUÉ PUBLICAR.** Los códigos que las tools realmente exigen:
+
+- tool con `getRequiredPermission()` vacío → **no exige permiso propio**, pero
+  el consent igual necesita al menos uno, así que hay que publicar el que la
+  cuenta ya tiene.
+- tool con un código concreto → publicar ese, y nada más. Publicar de más es
+  prometer permisos que ninguna tool usa.
+
+**EL ERROR DE SIMETRÍA.** Publicar un código que ninguna tool exige "para más
+adelante" hace que el consentimiento muestre una casilla que no cambia nada —
+peor que no mostrarla, porque el usuario cree que concedió algo. Si el código
+todavía no gobierna ninguna operación, decirlo en la etiqueta o no publicarlo.
 
 ---
 
@@ -293,3 +348,6 @@ Si el paso 4 devuelve el login **teniendo sesión**, falta la sección 5.
 | 200 al cambiar el código y 401 en todo lo demás | el endpoint no lee el `oa1.*` | §6 |
 | deploy "complete" sin las carpetas nuevas | `updategit.sh` del servidor desactualizado | §7 |
 | 301 en `POST /oauth/token/` | `DirectorySlash` de mod_rewrite | §3 |
+| "El cliente no solicitó permisos específicos" + "Debes conceder al menos un permiso" | `scopes_supported: []` | §3-bis |
+| permiso agregado que no aparece en el catálogo | declarado en el constructor, antes de `set_permissions_man()` | §3-bis |
+| casilla de permiso que no cambia nada | código publicado que ninguna tool exige | §3-bis |
